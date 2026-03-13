@@ -1,0 +1,17 @@
+/.aftman/
+/Packages/
+/*.rbxl
+/*.rbxlx
+/sourcemap.json
+/rojo-debug.log
+
+# Roblox / Rojo temp & lock files
+*.lock
+_rojo_*.rbxlx
+*.rbxl.lock
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.cursor/

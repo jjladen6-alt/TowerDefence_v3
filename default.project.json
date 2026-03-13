@@ -1,0 +1,54 @@
+{
+  "name": "TowerDefence_v3",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/shared"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "brown": {
+        "$path": "src/workspace/brown.rbxmx"
+      },
+      "green": {
+        "$path": "src/workspace/green.rbxmx"
+      },
+      "red": {
+        "$path": "src/workspace/red.rbxmx"
+      },
+      "yellow": {
+        "$path": "src/workspace/yellow.rbxmx"
+      },
+      "lobby": {
+        "$path": "src/workspace/lobby.rbxmx"
+      }
+    },
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "TowerModels": {
+        "$path": "src/serverstorage/TowerModels.rbxmx"
+      },
+      "EnemyModels": {
+        "$path": "src/serverstorage/EnemyModels.rbxmx"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    }
+  }
+}
