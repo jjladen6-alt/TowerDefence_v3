@@ -638,8 +638,12 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
             local step = math.min(moveSpeed * MOVE_TICK_SECONDS, distance)
             local nextPosition = currentPosition + (offset.Unit * step)
 
-            -- Drive the model from the root part directly to avoid pivot drift/stalls.
-            root.CFrame = CFrame.new(nextPosition, targetPosition)
+            -- Move the whole model so multi-part enemies don't visually stay behind at spawn.
+            local lookDirection = offset.Unit
+            if lookDirection.Magnitude <= 0 then
+                lookDirection = root.CFrame.LookVector
+            end
+            model:PivotTo(CFrame.new(nextPosition, nextPosition + lookDirection))
             local liveRecord = self._activeEnemies[enemyId]
             if liveRecord and #waypoints > 0 then
                 local remainingDistance = (nextPosition - targetPosition).Magnitude
@@ -666,7 +670,7 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
         end
 
         if (root.Position - targetPosition).Magnitude <= WAYPOINT_REACH_DISTANCE then
-            root.CFrame = CFrame.new(targetPosition, targetPosition + Vector3.zAxis)
+            model:PivotTo(CFrame.new(targetPosition, targetPosition + root.CFrame.LookVector))
             reachedWaypointCount = waypointIndex
             local liveRecord = self._activeEnemies[enemyId]
             if liveRecord and #waypoints > 0 then

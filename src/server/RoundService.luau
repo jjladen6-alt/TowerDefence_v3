@@ -861,15 +861,22 @@ function RoundService:_getLobbySpawn(): BasePart?
 end
 
 function RoundService:_configureSpawnPolicyForPhase(phase: string)
-    local mapSpawn = self:_getMapSpawn()
     local lobbySpawn = self:_getLobbySpawn()
+    local activeMap = self:_getActiveMapFolder()
 
-    local mapSpawnEnabled = phase == 'Wave'
+    local activeMapSpawnEnabled = phase == 'Wave'
     local lobbySpawnEnabled = phase ~= 'Wave'
 
-    if mapSpawn and mapSpawn:IsA('SpawnLocation') then
-        mapSpawn.Enabled = mapSpawnEnabled
-        mapSpawn.Neutral = true
+    for _, child in ipairs(Workspace:GetChildren()) do
+        if child:IsA('Model') and string.lower(child.Name) ~= 'lobby' then
+            local shouldEnableMapSpawn = activeMapSpawnEnabled and activeMap ~= nil and child == activeMap
+            for _, descendant in ipairs(child:GetDescendants()) do
+                if descendant:IsA('SpawnLocation') then
+                    descendant.Enabled = shouldEnableMapSpawn
+                    descendant.Neutral = true
+                end
+            end
+        end
     end
 
     if lobbySpawn and lobbySpawn:IsA('SpawnLocation') then

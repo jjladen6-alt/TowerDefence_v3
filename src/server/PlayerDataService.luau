@@ -114,13 +114,18 @@ function PlayerDataService:_loadProfile(userId: number)
         normalized.currency = math.floor(fallbackCurrency)
     end
     self._profilesByUserId[userId] = normalized
-    self._dirtyByUserId[userId] = true
+    -- Only mark newly created profiles dirty; existing profiles should not autosave on shutdown
+    -- unless gameplay actually changed them.
+    self._dirtyByUserId[userId] = loaded == nil
 end
 
-function PlayerDataService:_saveProfile(userId: number)
+function PlayerDataService:_saveProfile(userId: number, force: boolean?)
     local profile = self._profilesByUserId[userId]
     if type(profile) ~= 'table' then
         return false
+    end
+    if force ~= true and self._dirtyByUserId[userId] ~= true then
+        return true
     end
     local key = self:_profileKeyForUserId(userId)
     local snapshot = deepCopy(normalizeProfile(profile))
