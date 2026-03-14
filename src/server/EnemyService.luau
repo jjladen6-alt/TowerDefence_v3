@@ -139,13 +139,17 @@ local function applyEnemyVisualContrast(model: Model, gameConfig, variant: strin
     end
     local defaultStyle = type(contrastConfig.default) == 'table' and contrastConfig.default or {}
     local variantStyles = type(contrastConfig.variants) == 'table' and contrastConfig.variants or nil
-    local variantStyle = type(variantStyles) == 'table' and type(variantStyles[variant]) == 'table' and variantStyles[variant] or {}
+    local variantStyle = type(variantStyles) == 'table'
+            and type(variantStyles[variant]) == 'table'
+            and variantStyles[variant]
+        or {}
     local eliteStyle = if isElite and type(contrastConfig.elite) == 'table' then contrastConfig.elite else {}
 
     local bodyColor = variantStyle.bodyColor or defaultStyle.bodyColor or Color3.fromRGB(212, 78, 78)
     local accentColor = variantStyle.accentColor or defaultStyle.accentColor or Color3.fromRGB(255, 194, 120)
     local outlineColor = eliteStyle.outlineColor or defaultStyle.outlineColor or accentColor
-    local fillTransparency = math.clamp(tonumber(eliteStyle.fillTransparency or defaultStyle.fillTransparency) or 0.9, 0.75, 0.97)
+    local fillTransparency =
+        math.clamp(tonumber(eliteStyle.fillTransparency or defaultStyle.fillTransparency) or 0.9, 0.75, 0.97)
     local outlineTransparency =
         math.clamp(tonumber(eliteStyle.outlineTransparency or defaultStyle.outlineTransparency) or 0.2, 0.05, 0.55)
     local resolvedMaterial = resolveMaterialFromName(defaultStyle.material)

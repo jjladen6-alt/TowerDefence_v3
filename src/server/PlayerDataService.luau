@@ -187,21 +187,27 @@ function PlayerDataService:start()
         self:_loadProfile(player.UserId)
     end
 
-    table.insert(self._connections, Players.PlayerAdded:Connect(function(player)
-        if not self._running or self._runId ~= runId then
-            return
-        end
-        self:_loadProfile(player.UserId)
-    end))
+    table.insert(
+        self._connections,
+        Players.PlayerAdded:Connect(function(player)
+            if not self._running or self._runId ~= runId then
+                return
+            end
+            self:_loadProfile(player.UserId)
+        end)
+    )
 
-    table.insert(self._connections, Players.PlayerRemoving:Connect(function(player)
-        if not self._running or self._runId ~= runId then
-            return
-        end
-        self:_saveProfile(player.UserId)
-        self._profilesByUserId[player.UserId] = nil
-        self._dirtyByUserId[player.UserId] = nil
-    end))
+    table.insert(
+        self._connections,
+        Players.PlayerRemoving:Connect(function(player)
+            if not self._running or self._runId ~= runId then
+                return
+            end
+            self:_saveProfile(player.UserId)
+            self._profilesByUserId[player.UserId] = nil
+            self._dirtyByUserId[player.UserId] = nil
+        end)
+    )
 end
 
 function PlayerDataService:stop()

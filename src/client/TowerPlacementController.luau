@@ -14,8 +14,7 @@ local HUDTheme = require(script.Parent:WaitForChild('ui'):WaitForChild('HUDTheme
 local TowerPlacementController = {}
 TowerPlacementController.__index = TowerPlacementController
 
-local CONTROL_HINT =
-    'Controls: 1-4 tower, click/tap place/select, Enter place, R rotate, C cancel, U upgrade, X sell.'
+local CONTROL_HINT = 'Controls: 1-4 tower, click/tap place/select, Enter place, R rotate, C cancel, U upgrade, X sell.'
 local REMOTE_RESOLVE_ATTEMPTS = 10
 local REMOTE_RESOLVE_RETRY_SECONDS = 0.5
 local TARGET_MODE_ORDER = { 'First', 'Last', 'Closest' }
@@ -207,8 +206,9 @@ function TowerPlacementController:_updatePhaseVisualState()
     end
     if self._phaseStatusLabel and self._phaseStatusLabel.Parent then
         self._phaseStatusLabel.Text = ('Phase: %s'):format(self:_getPhaseLabel(self._latestPhase))
-        self._phaseStatusLabel.TextColor3 =
-            if isWave then Color3.fromRGB(190, 235, 255) else Color3.fromRGB(195, 205, 220)
+        self._phaseStatusLabel.TextColor3 = if isWave
+            then Color3.fromRGB(190, 235, 255)
+            else Color3.fromRGB(195, 205, 220)
     end
 end
 
@@ -619,7 +619,10 @@ function TowerPlacementController:_getTowerRole(towerType: string): string
     return 'General'
 end
 
-function TowerPlacementController:_computeTowerTierStatsPreview(towerType: string, tier: number): (number, number, number)
+function TowerPlacementController:_computeTowerTierStatsPreview(
+    towerType: string,
+    tier: number
+): (number, number, number)
     local baseDamage = tonumber(GameConfig.TOWER_DEFAULT_DAMAGE) or 10
     local baseRange = tonumber(GameConfig.TOWER_DEFAULT_RANGE) or 20
     local baseAttackInterval = tonumber(GameConfig.TOWER_ATTACK_INTERVAL_SECONDS) or 1.0
@@ -650,7 +653,11 @@ function TowerPlacementController:_computeTowerTierStatsPreview(towerType: strin
     return damage, range, attackInterval
 end
 
-function TowerPlacementController:_computeUpgradeCostPreview(towerModel: Model, towerType: string, nextTier: number): number
+function TowerPlacementController:_computeUpgradeCostPreview(
+    towerModel: Model,
+    towerType: string,
+    nextTier: number
+): number
     local costPaid = tonumber(towerModel:GetAttribute('CostPaid')) or 0
     if costPaid <= 0 then
         local costs = GameConfig.TOWER_COSTS
@@ -756,7 +763,9 @@ function TowerPlacementController:_updateSelectionActionUi()
         self._upgradeButton.Visible = hasSelection
         self._upgradeButton.Active = hasSelection and upgradeLockedReason == nil
         self._upgradeButton.AutoButtonColor = self._upgradeButton.Active
-        self._upgradeButton.Text = if upgradeLockedReason == nil then 'Upgrade' else ('Upgrade [' .. upgradeLockedReason .. ']')
+        self._upgradeButton.Text = if upgradeLockedReason == nil
+            then 'Upgrade'
+            else ('Upgrade [' .. upgradeLockedReason .. ']')
     end
     if self._sellButton and self._sellButton.Parent then
         self._sellButton.Visible = hasSelection
@@ -879,7 +888,8 @@ function TowerPlacementController:_updateSelectedTowerPanel()
             if towerType == 'Support' then
                 local auraByTier = GameConfig.SUPPORT_TOWER_AURA_RADIUS_BY_TIER
                 local currentAura = type(auraByTier) == 'table' and (tonumber(auraByTier[tier]) or 0) or 0
-                local nextAura = type(auraByTier) == 'table' and (tonumber(auraByTier[nextTier]) or currentAura) or currentAura
+                local nextAura = type(auraByTier) == 'table' and (tonumber(auraByTier[nextTier]) or currentAura)
+                    or currentAura
                 labels.delta.Text = ('Next: Aura +%.1f | Int %.2f->%.2f | Cost $%d'):format(
                     nextAura - currentAura,
                     attackInterval,
@@ -1329,7 +1339,8 @@ function TowerPlacementController:_createHud()
     local actionRightX = touchPreferred and (touchButtonWidth + 12) or 122
     local actionBaseBottomY = (touchPreferred and 12 or 8) + safeBottomY
     local mobileInventoryScale = 0.78
-    local inventoryHudLayout = type(GameConfig.INVENTORY_HUD_LAYOUT) == 'table' and GameConfig.INVENTORY_HUD_LAYOUT or {}
+    local inventoryHudLayout = type(GameConfig.INVENTORY_HUD_LAYOUT) == 'table' and GameConfig.INVENTORY_HUD_LAYOUT
+        or {}
     local inventoryHudScale = tonumber(inventoryHudLayout.scale) or 0.8
     inventoryHudScale = math.clamp(inventoryHudScale, 0.6, 1.2)
     local inventoryDropViewportPct = tonumber(inventoryHudLayout.dropViewportPct) or 0.05

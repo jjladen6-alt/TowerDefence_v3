@@ -281,7 +281,11 @@ function QueueService:_checkAndTrackRequestDedup(player: Player, requestType: st
     return true, nil
 end
 
-function QueueService:_validateRequest(player: Player, requestType: string, payload): (boolean, string?, string?, string)
+function QueueService:_validateRequest(
+    player: Player,
+    requestType: string,
+    payload
+): (boolean, string?, string?, string)
     local correlationId = self:_resolveRequestCorrelationId(player, requestType, payload)
     local allowedRate, rateLimitMessage = self:_checkAndConsumeRateLimit(player, requestType)
     if not allowedRate then
@@ -358,7 +362,9 @@ function QueueService:_initializeStageQueues()
 end
 
 function QueueService:_resolveSelectionFromPayload(payload): (boolean, table?, string?, string?)
-    local stageId = if type(payload) == 'table' and type(payload.stageId) == 'string' and payload.stageId ~= ''
+    local stageId = if type(payload) == 'table'
+            and type(payload.stageId) == 'string'
+            and payload.stageId ~= ''
         then payload.stageId
         else nil
     local actId = tostring(
@@ -417,12 +423,15 @@ function QueueService:_resolveSelectionFromPayload(payload): (boolean, table?, s
         return false, nil, 'ACT_LOCKED', ('Act "%s" is currently locked.'):format(actId)
     end
 
-    return true, {
-        stageId = stageId,
-        actId = actId,
-        stageLabel = tostring(selectedStage.stageLabel or stageId),
-        implemented = true,
-    }, nil, nil
+    return true,
+        {
+            stageId = stageId,
+            actId = actId,
+            stageLabel = tostring(selectedStage.stageLabel or stageId),
+            implemented = true,
+        },
+        nil,
+        nil
 end
 
 function QueueService:_getStageQueueSize(stageId: string): number
@@ -772,7 +781,13 @@ function QueueService:_setPlayerReady(player: Player, stageId: string, isReady: 
         return
     end
     stageQueue.readyByUserId[player.UserId] = isReady
-    self:_sendSystemMessage(player, ('[Queue][%s] Ready state: %s'):format(isReady and 'READY_SET' or 'READY_UNSET', isReady and 'READY' or 'NOT READY'))
+    self:_sendSystemMessage(
+        player,
+        ('[Queue][%s] Ready state: %s'):format(
+            isReady and 'READY_SET' or 'READY_UNSET',
+            isReady and 'READY' or 'NOT READY'
+        )
+    )
     self:_emitTelemetry('QueueRequest', {
         event = 'READY_STATE_CHANGED',
         stageId = stageId,
@@ -787,9 +802,16 @@ function QueueService:_handleRequestCreateMatch(player: Player, payload)
     local requestType = self._net.ClientToServer.RequestCreateMatch
     local validRequest, rejectReason, rejectMessage, correlationId = self:_validateRequest(player, requestType, payload)
     if not validRequest then
-        self:_rejectRequest(player, requestType, rejectReason or 'INVALID_REQUEST', rejectMessage or 'Queue create request rejected.', {
-            payloadType = typeof(payload),
-        }, correlationId)
+        self:_rejectRequest(
+            player,
+            requestType,
+            rejectReason or 'INVALID_REQUEST',
+            rejectMessage or 'Queue create request rejected.',
+            {
+                payloadType = typeof(payload),
+            },
+            correlationId
+        )
         return
     end
 
@@ -805,7 +827,8 @@ function QueueService:_handleRequestCreateMatch(player: Player, payload)
         return
     end
 
-    local selectionOk, selection, selectionReasonCode, selectionReasonMessage = self:_resolveSelectionFromPayload(payload)
+    local selectionOk, selection, selectionReasonCode, selectionReasonMessage =
+        self:_resolveSelectionFromPayload(payload)
     if not selectionOk then
         self:_rejectRequest(
             player,
@@ -863,13 +886,21 @@ function QueueService:_handleRequestReady(player: Player, payload)
     local requestType = self._net.ClientToServer.RequestReady
     local validRequest, rejectReason, rejectMessage, correlationId = self:_validateRequest(player, requestType, payload)
     if not validRequest then
-        self:_rejectRequest(player, requestType, rejectReason or 'INVALID_REQUEST', rejectMessage or 'Queue ready request rejected.', {
-            payloadType = typeof(payload),
-        }, correlationId)
+        self:_rejectRequest(
+            player,
+            requestType,
+            rejectReason or 'INVALID_REQUEST',
+            rejectMessage or 'Queue ready request rejected.',
+            {
+                payloadType = typeof(payload),
+            },
+            correlationId
+        )
         return
     end
 
-    local selectionOk, selection, selectionReasonCode, selectionReasonMessage = self:_resolveSelectionFromPayload(payload)
+    local selectionOk, selection, selectionReasonCode, selectionReasonMessage =
+        self:_resolveSelectionFromPayload(payload)
     if not selectionOk then
         self:_rejectRequest(
             player,
@@ -885,7 +916,14 @@ function QueueService:_handleRequestReady(player: Player, payload)
     local readyValue = true
     if type(payload) == 'table' and payload.ready ~= nil then
         if type(payload.ready) ~= 'boolean' then
-            self:_rejectRequest(player, requestType, 'INVALID_READY_VALUE', 'Ready must be true or false.', nil, correlationId)
+            self:_rejectRequest(
+                player,
+                requestType,
+                'INVALID_READY_VALUE',
+                'Ready must be true or false.',
+                nil,
+                correlationId
+            )
             return
         end
         readyValue = payload.ready == true
@@ -1054,41 +1092,61 @@ function QueueService:start()
             end
         end
         if not queuePad then
-            warn(('[QueueService] QueuePad not found at Workspace/lobby/%s for stage %s'):format(stageQueue.queuePadName, stageId))
+            warn(
+                ('[QueueService] QueuePad not found at Workspace/lobby/%s for stage %s'):format(
+                    stageQueue.queuePadName,
+                    stageId
+                )
+            )
         else
             stageQueue.queuePad = queuePad
-            table.insert(self._connections, queuePad.Touched:Connect(function(hitPart)
-                if self._running and hitPart:IsA('BasePart') then
-                    self:_onQueuePadTouched(stageId, hitPart)
-                end
-            end))
-            table.insert(self._connections, queuePad.TouchEnded:Connect(function(hitPart)
-                if self._running and hitPart:IsA('BasePart') then
-                    self:_onQueuePadTouchEnded(stageId, hitPart)
-                end
-            end))
+            table.insert(
+                self._connections,
+                queuePad.Touched:Connect(function(hitPart)
+                    if self._running and hitPart:IsA('BasePart') then
+                        self:_onQueuePadTouched(stageId, hitPart)
+                    end
+                end)
+            )
+            table.insert(
+                self._connections,
+                queuePad.TouchEnded:Connect(function(hitPart)
+                    if self._running and hitPart:IsA('BasePart') then
+                        self:_onQueuePadTouchEnded(stageId, hitPart)
+                    end
+                end)
+            )
         end
     end
 
-    table.insert(self._connections, Players.PlayerRemoving:Connect(function(player)
-        self:_removeQueuedPlayerByUserId(player.UserId)
-    end))
+    table.insert(
+        self._connections,
+        Players.PlayerRemoving:Connect(function(player)
+            self:_removeQueuedPlayerByUserId(player.UserId)
+        end)
+    )
 
     self._remotes.createMatch = getRemoteEvent(self._net.ClientToServer.RequestCreateMatch, 5)
     self._remotes.ready = getRemoteEvent(self._net.ClientToServer.RequestReady, 5)
     if self._remotes.createMatch then
-        table.insert(self._connections, self._remotes.createMatch.OnServerEvent:Connect(function(player, payload)
-            if self._running then
-                self:_handleRequestCreateMatch(player, payload)
-            end
-        end))
+        table.insert(
+            self._connections,
+            self._remotes.createMatch.OnServerEvent:Connect(function(player, payload)
+                if self._running then
+                    self:_handleRequestCreateMatch(player, payload)
+                end
+            end)
+        )
     end
     if self._remotes.ready then
-        table.insert(self._connections, self._remotes.ready.OnServerEvent:Connect(function(player, payload)
-            if self._running then
-                self:_handleRequestReady(player, payload)
-            end
-        end))
+        table.insert(
+            self._connections,
+            self._remotes.ready.OnServerEvent:Connect(function(player, payload)
+                if self._running then
+                    self:_handleRequestReady(player, payload)
+                end
+            end)
+        )
     end
 
     for _, stageId in ipairs(self._stageOrder) do
@@ -1168,7 +1226,9 @@ function QueueService:takeLockedRoster(): ({ Player }, table?)
     end
 
     local rosterSnapshot = self:getLockedRoster()
-    local stageSelection = if type(stageQueue.lockedStageSelection) == 'table' then table.clone(stageQueue.lockedStageSelection) else nil
+    local stageSelection = if type(stageQueue.lockedStageSelection) == 'table'
+        then table.clone(stageQueue.lockedStageSelection)
+        else nil
 
     table.clear(stageQueue.lockedRoster)
     stageQueue.lockedStageSelection = nil

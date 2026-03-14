@@ -341,7 +341,12 @@ function TowerPlacementService:_getTowerRootCandidates(model: Model): { string }
     end
 
     local towerType = model:GetAttribute('TowerType')
-    if type(towerType) == 'string' and towerType ~= '' and type(schema) == 'table' and type(schema.towers) == 'table' then
+    if
+        type(towerType) == 'string'
+        and towerType ~= ''
+        and type(schema) == 'table'
+        and type(schema.towers) == 'table'
+    then
         local towerSpec = schema.towers[towerType]
         if type(towerSpec) == 'table' then
             pushName(towerSpec.rootPartName)
@@ -523,7 +528,15 @@ function TowerPlacementService:_resolvePlacementSurface(
     player: Player,
     requestedPosition: Vector3,
     towerType: string
-): (boolean, string?, string?, Vector3?, string?, number?, number?)
+): (
+    boolean,
+    string?,
+    string?,
+    Vector3?,
+    string?,
+    number?,
+    number?
+)
     local map = self:_getMapModel()
     if not map then
         return false, 'INVALID_SURFACE', 'Map is unavailable.', nil, nil, nil, nil
@@ -536,11 +549,7 @@ function TowerPlacementService:_resolvePlacementSurface(
 
     local surfaceMode = tostring(self._config.PLACEMENT_SURFACE_MODE or 'AnySurfaceExceptBlocked')
     local params = self:_buildPlacementRaycastParams(player)
-    local surfaceProbe = Workspace:Raycast(
-        requestedPosition + Vector3.new(0, 128, 0),
-        Vector3.new(0, -1024, 0),
-        params
-    )
+    local surfaceProbe = Workspace:Raycast(requestedPosition + Vector3.new(0, 128, 0), Vector3.new(0, -1024, 0), params)
     if not surfaceProbe then
         return false, 'INVALID_SURFACE', 'No buildable surface found.', nil, nil, nil, nil
     end
@@ -575,7 +584,8 @@ function TowerPlacementService:_resolvePlacementSurface(
     end
 
     local placementHeight = self:_getTowerPlacementHeight(towerType)
-    local snappedWorldPosition = Vector3.new(snappedXZ.X, snappedProbe.Position.Y + (placementHeight * 0.5), snappedXZ.Z)
+    local snappedWorldPosition =
+        Vector3.new(snappedXZ.X, snappedProbe.Position.Y + (placementHeight * 0.5), snappedXZ.Z)
     local cellKey = ('%s:%d:%d'):format(tostring(self._activeMapName), gx, gz)
 
     return true, nil, nil, snappedWorldPosition, cellKey, gx, gz
@@ -1282,7 +1292,11 @@ function TowerPlacementService:_handleRequestPlaceTower(player: Player, payload)
         towerModel:SetAttribute('TargetMode', 'First')
         towerModel:SetAttribute('PlacementRotationY', rotationY)
         local towerSpec = self:_getTowerSchemaSpec(towerType)
-        if type(towerSpec) == 'table' and type(towerSpec.facingPartName) == 'string' and towerSpec.facingPartName ~= '' then
+        if
+            type(towerSpec) == 'table'
+            and type(towerSpec.facingPartName) == 'string'
+            and towerSpec.facingPartName ~= ''
+        then
             towerModel:SetAttribute('FacingPartName', towerSpec.facingPartName)
         end
         towerModel.Parent = towersFolder

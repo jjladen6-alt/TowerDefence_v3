@@ -1723,10 +1723,7 @@ function RoundService:_runWavePhase(runId: number)
     if type(self._enemyService.setActiveMapName) == 'function' then
         self._enemyService:setActiveMapName(self._activeMapName)
     end
-    if
-        self._towerPlacementService
-        and type(self._towerPlacementService.setActiveMapName) == 'function'
-    then
+    if self._towerPlacementService and type(self._towerPlacementService.setActiveMapName) == 'function' then
         self._towerPlacementService:setActiveMapName(self._activeMapName)
     end
     self._roundNumber += 1

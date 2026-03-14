@@ -419,8 +419,7 @@ function MatchEntryController:_buildStageRows(container: Frame)
                 local unlocked = stageImplemented and (act.unlocked ~= false)
                 local lockTag = if not stageImplemented
                     then 'NOT IMPLEMENTED'
-                    elseif unlocked
-                    then 'UNLOCKED'
+                    elseif unlocked then 'UNLOCKED'
                     else ('LOCKED: ' .. tostring(act.lockReason or 'Unavailable'))
                 local reward = tostring(act.rewardPreview or 'No reward preview')
                 button.Text = ('%s | %s | %s'):format(tostring(act.actLabel or act.actId), lockTag, reward)
@@ -490,8 +489,7 @@ function MatchEntryController:_createHud()
     panel.Size = touchPreferred and UDim2.fromOffset(mobilePanelWidth, mobilePanelHeight)
         or UDim2.fromOffset(layout.width, layout.height)
     panel.AnchorPoint = touchPreferred and Vector2.new(0, 1) or Vector2.new(0.5, 0)
-    panel.Position = touchPreferred
-            and UDim2.fromOffset(10, viewportSize.Y - safeBottomY - 10)
+    panel.Position = touchPreferred and UDim2.fromOffset(10, viewportSize.Y - safeBottomY - 10)
         or UDim2.new(0.5, 0, 0, topInsetY + math.max(layout.offsetY, layout.minTopClearance))
     panel.Parent = screenGui
     self._entryPanel = panel
@@ -655,7 +653,10 @@ function MatchEntryController:_bindRoundStatus()
             end
 
             if self._latestPhase == 'Lobby' then
-                if self._latestQueueState == 'CountingDown' and type(self._latestQueueCountdownTimeRemaining) == 'number' then
+                if
+                    self._latestQueueState == 'CountingDown'
+                    and type(self._latestQueueCountdownTimeRemaining) == 'number'
+                then
                     self:_setStatus(
                         ('Queue countdown: %ds (%d ready of %d queued).'):format(
                             math.max(0, math.floor(self._latestQueueCountdownTimeRemaining)),

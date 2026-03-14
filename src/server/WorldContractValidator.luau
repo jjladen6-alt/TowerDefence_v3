@@ -74,7 +74,10 @@ local function validateWaypointContract(errors: { string }, waypointsFolder: Ins
     end
 
     if #orderedParts == 0 then
-        table.insert(errors, ('Workspace/%s/Waypoints has no valid numeric/wp-prefixed waypoint parts.'):format(mapName))
+        table.insert(
+            errors,
+            ('Workspace/%s/Waypoints has no valid numeric/wp-prefixed waypoint parts.'):format(mapName)
+        )
         return
     end
 
@@ -176,12 +179,7 @@ local function ensurePath(root: Instance, slashPath: string, className: string)
         local child = current:FindFirstChild(segment)
         if not child then
             local isLeaf = index == #segments
-            if not isLeaf then
-                local createdFolder = Instance.new('Folder')
-                createdFolder.Name = segment
-                createdFolder.Parent = current
-                child = createdFolder
-            elseif className == 'Folder' then
+            if (not isLeaf) or className == 'Folder' then
                 local createdFolder = Instance.new('Folder')
                 createdFolder.Name = segment
                 createdFolder.Parent = current
@@ -900,7 +898,10 @@ local function validateGameConfig(GameConfigModule, NetModule, errors: { string 
     elseif type(blockedTags) == 'table' then
         for index, tagName in ipairs(blockedTags) do
             if type(tagName) ~= 'string' or tagName == '' then
-                table.insert(errors, ('GameConfig.PLACEMENT_BLOCKED_TAGS[%d] must be a non-empty string.'):format(index))
+                table.insert(
+                    errors,
+                    ('GameConfig.PLACEMENT_BLOCKED_TAGS[%d] must be a non-empty string.'):format(index)
+                )
             end
         end
     end

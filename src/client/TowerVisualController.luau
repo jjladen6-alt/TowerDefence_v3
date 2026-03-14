@@ -342,7 +342,8 @@ function TowerVisualController:_tick(nowTime: number)
         else
             local tier = math.max(0, math.floor(tonumber(towerModel:GetAttribute('UpgradeTier')) or state.tier or 0))
             state.tier = tier
-            local attackInterval = math.max(0.05, tonumber(towerModel:GetAttribute('AttackInterval')) or state.attackInterval or 1)
+            local attackInterval =
+                math.max(0.05, tonumber(towerModel:GetAttribute('AttackInterval')) or state.attackInterval or 1)
             state.attackInterval = attackInterval
             local vfxStyle = self:_getAttackVfxStyle(state.towerType)
             local pulseRateFloor = math.max(0.05, tonumber(vfxStyle.pulseRateFloor) or 0.2)
@@ -366,65 +367,80 @@ function TowerVisualController:start()
 
     local towerPlacedRemote = getRemoteEvent(self._net.ServerToClient.TowerPlaced, 5)
     if towerPlacedRemote then
-        table.insert(self._connections, towerPlacedRemote.OnClientEvent:Connect(function(payload)
-            local towerId = tostring(payload and payload.towerId or '')
-            if towerId ~= '' then
-                self:_syncTowerFromWorkspace(towerId)
-            end
-        end))
+        table.insert(
+            self._connections,
+            towerPlacedRemote.OnClientEvent:Connect(function(payload)
+                local towerId = tostring(payload and payload.towerId or '')
+                if towerId ~= '' then
+                    self:_syncTowerFromWorkspace(towerId)
+                end
+            end)
+        )
     end
 
     local towerUpdatedRemote = getRemoteEvent(self._net.ServerToClient.TowerUpdated, 5)
     if towerUpdatedRemote then
-        table.insert(self._connections, towerUpdatedRemote.OnClientEvent:Connect(function(payload)
-            local towerId = tostring(payload and payload.towerId or '')
-            if towerId ~= '' then
-                self:_syncTowerFromWorkspace(towerId)
-            end
-        end))
+        table.insert(
+            self._connections,
+            towerUpdatedRemote.OnClientEvent:Connect(function(payload)
+                local towerId = tostring(payload and payload.towerId or '')
+                if towerId ~= '' then
+                    self:_syncTowerFromWorkspace(towerId)
+                end
+            end)
+        )
     end
 
     local towerRemovedRemote = getRemoteEvent(self._net.ServerToClient.TowerRemoved, 5)
     if towerRemovedRemote then
-        table.insert(self._connections, towerRemovedRemote.OnClientEvent:Connect(function(payload)
-            local towerId = tostring(payload and payload.towerId or '')
-            if towerId ~= '' then
-                self:_untrackTower(towerId)
-            end
-        end))
+        table.insert(
+            self._connections,
+            towerRemovedRemote.OnClientEvent:Connect(function(payload)
+                local towerId = tostring(payload and payload.towerId or '')
+                if towerId ~= '' then
+                    self:_untrackTower(towerId)
+                end
+            end)
+        )
     end
 
     local roundStatusRemote = getRemoteEvent(self._net.ServerToClient.RoundStatus, 5)
     if roundStatusRemote then
-        table.insert(self._connections, roundStatusRemote.OnClientEvent:Connect(function(payload)
-            local phase = tostring(payload and payload.phase or self._phase)
-            local activeMapName = tostring(payload and payload.activeMapName or self._activeMapName)
-            if activeMapName ~= '' and activeMapName ~= self._activeMapName then
-                self._activeMapName = activeMapName
-                table.clear(self._towerStateById)
-                self:_scanExistingTowers()
-            end
-            if phase ~= self._phase then
-                self._phase = phase
-                if phase ~= 'Wave' then
-                    self:_clearAllTransientVfx()
-                    if phase == 'Cleanup' or phase == 'Lobby' then
-                        table.clear(self._towerStateById)
+        table.insert(
+            self._connections,
+            roundStatusRemote.OnClientEvent:Connect(function(payload)
+                local phase = tostring(payload and payload.phase or self._phase)
+                local activeMapName = tostring(payload and payload.activeMapName or self._activeMapName)
+                if activeMapName ~= '' and activeMapName ~= self._activeMapName then
+                    self._activeMapName = activeMapName
+                    table.clear(self._towerStateById)
+                    self:_scanExistingTowers()
+                end
+                if phase ~= self._phase then
+                    self._phase = phase
+                    if phase ~= 'Wave' then
+                        self:_clearAllTransientVfx()
+                        if phase == 'Cleanup' or phase == 'Lobby' then
+                            table.clear(self._towerStateById)
+                        end
+                    end
+                    for _, state in pairs(self._towerStateById) do
+                        if state and state.model and state.model.Parent then
+                            self:_applyTierVisuals(state.model)
+                        end
                     end
                 end
-                for _, state in pairs(self._towerStateById) do
-                    if state and state.model and state.model.Parent then
-                        self:_applyTierVisuals(state.model)
-                    end
-                end
-            end
-        end))
+            end)
+        )
     end
 
     self:_scanExistingTowers()
-    table.insert(self._connections, RunService.Heartbeat:Connect(function()
-        self:_tick(os.clock())
-    end))
+    table.insert(
+        self._connections,
+        RunService.Heartbeat:Connect(function()
+            self:_tick(os.clock())
+        end)
+    )
 end
 
 function TowerVisualController:stop()

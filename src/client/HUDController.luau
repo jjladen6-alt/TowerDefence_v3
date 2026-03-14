@@ -216,10 +216,22 @@ function HUDController:_getTopLeftLayoutConfig()
     return {
         panelVerticalGap = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.panelVerticalGap) or 10)),
         matchEntryPanelOffsetY = math.floor(tonumber(topLeftStack and topLeftStack.matchEntryPanelOffsetY) or 10),
-        matchEntryPanelHeight = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.matchEntryPanelHeight) or 124)),
-        minTopClearance = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.minTopClearanceFromCoreGui) or 15)),
-        coreUiReservedWidth = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.coreUiReservedWidth) or 190)),
-        coreUiReservedHeight = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.coreUiReservedHeight) or 56)),
+        matchEntryPanelHeight = math.max(
+            0,
+            math.floor(tonumber(topLeftStack and topLeftStack.matchEntryPanelHeight) or 124)
+        ),
+        minTopClearance = math.max(
+            0,
+            math.floor(tonumber(topLeftStack and topLeftStack.minTopClearanceFromCoreGui) or 15)
+        ),
+        coreUiReservedWidth = math.max(
+            0,
+            math.floor(tonumber(topLeftStack and topLeftStack.coreUiReservedWidth) or 190)
+        ),
+        coreUiReservedHeight = math.max(
+            0,
+            math.floor(tonumber(topLeftStack and topLeftStack.coreUiReservedHeight) or 56)
+        ),
         coreUiReservedGap = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.coreUiReservedGap) or 12)),
         notificationPanelMinTopOffset = math.max(
             0,
@@ -230,7 +242,10 @@ function HUDController:_getTopLeftLayoutConfig()
             tonumber(topLeftStack and topLeftStack.notificationViewportDropScale) or 0.05
         ),
         notificationLeftOffset = math.floor(tonumber(topLeftStack and topLeftStack.notificationLeftOffset) or 10),
-        notificationBottomMargin = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.notificationBottomMargin) or 8)),
+        notificationBottomMargin = math.max(
+            0,
+            math.floor(tonumber(topLeftStack and topLeftStack.notificationBottomMargin) or 8)
+        ),
     }
 end
 
@@ -245,10 +260,7 @@ function HUDController:_updateNotificationsPanelLayout()
     local topInset = getSafeInsets()
     local topInsetY = math.floor(topInset.Y)
     local layout = self:_getTopLeftLayoutConfig()
-    local verticalDropPixels = math.max(
-        5,
-        math.floor((viewportSize.Y * layout.notificationViewportDropScale) + 0.5)
-    )
+    local verticalDropPixels = math.max(5, math.floor((viewportSize.Y * layout.notificationViewportDropScale) + 0.5))
     local targetTop = topInsetY + layout.minTopClearance + layout.notificationPanelMinTopOffset + verticalDropPixels
     local phase = tostring(self._state.phase or 'Idle')
     if phase == 'Lobby' then
@@ -259,7 +271,9 @@ function HUDController:_updateNotificationsPanelLayout()
             then tonumber(playerGui:GetAttribute(MATCH_ENTRY_LAYOUT_BOTTOM_ATTR)) or 0
             else 0
         if lobbyBottom <= 0 then
-            lobbyBottom = topInsetY + math.max(layout.matchEntryPanelOffsetY, layout.minTopClearance) + layout.matchEntryPanelHeight
+            lobbyBottom = topInsetY
+                + math.max(layout.matchEntryPanelOffsetY, layout.minTopClearance)
+                + layout.matchEntryPanelHeight
         end
         targetTop = math.max(targetTop, math.floor(lobbyBottom) + layout.panelVerticalGap)
     end
@@ -304,7 +318,8 @@ function HUDController:_updateResponsiveHudLayout()
         return
     end
 
-    local layoutConfig = type(GameConfig.HUD_COMBAT_STRIP_LAYOUT) == 'table' and GameConfig.HUD_COMBAT_STRIP_LAYOUT or {}
+    local layoutConfig = type(GameConfig.HUD_COMBAT_STRIP_LAYOUT) == 'table' and GameConfig.HUD_COMBAT_STRIP_LAYOUT
+        or {}
     local profile = if self._touchPreferred then layoutConfig.touch else layoutConfig.desktop
     if type(profile) ~= 'table' then
         profile = {}
@@ -312,9 +327,8 @@ function HUDController:_updateResponsiveHudLayout()
 
     local camera = workspace.CurrentCamera
     local viewportSize = camera and camera.ViewportSize or Vector2.new(1280, 720)
-    local topInset, bottomInset = getSafeInsets()
+    local _, bottomInset = getSafeInsets()
     local safePadding = math.max(0, math.floor(tonumber(GameConfig.UI_SAFE_AREA_PADDING) or 8))
-    local topInsetY = math.floor(topInset.Y)
     local safeRight = math.floor(bottomInset.X) + safePadding
     local safeBottom = math.floor(bottomInset.Y) + safePadding
 
@@ -435,7 +449,10 @@ function HUDController:_resolveCombatCueLabel()
         laneLabel = 'Lane: Congested'
     elseif (tonumber(s.baseHealth) or 0) > 0 and (tonumber(s.baseHealth) or 0) <= 35 then
         laneLabel = 'Lane: Base Danger'
-    elseif (tonumber(s.eliteExpectedCount) or 0) > 0 and (tonumber(s.eliteSpawnedCount) or 0) < (tonumber(s.eliteExpectedCount) or 0) then
+    elseif
+        (tonumber(s.eliteExpectedCount) or 0) > 0
+        and (tonumber(s.eliteSpawnedCount) or 0) < (tonumber(s.eliteExpectedCount) or 0)
+    then
         local spawnProgress = enemySpawnedCount / enemyTargetCount
         if spawnProgress >= 0.5 then
             laneLabel = 'Lane: Elite Window'
@@ -459,14 +476,17 @@ function HUDController:_applyVisualPriority()
         then (colorSafeCritical and Color3.fromRGB(255, 235, 120) or Color3.fromRGB(255, 118, 118))
         elseif baseRatio <= 0.6 then Color3.fromRGB(255, 214, 140)
         else Color3.fromRGB(220, 240, 220)
-    labels.spawn.TextColor3 = if (tonumber(s.activeEnemyCount) or 0) >= 12 then Color3.fromRGB(255, 204, 138)
+    labels.spawn.TextColor3 = if (tonumber(s.activeEnemyCount) or 0) >= 12
+        then Color3.fromRGB(255, 204, 138)
         else Color3.fromRGB(210, 210, 210)
     labels.lane.TextColor3 = if string.find(labels.lane.Text, 'Danger', 1, true) ~= nil
         then (colorSafeCritical and Color3.fromRGB(255, 235, 120) or Color3.fromRGB(255, 126, 126))
         else Color3.fromRGB(210, 210, 210)
-    labels.mode.TextColor3 = if tostring(s.phase or 'Idle') == 'Wave' then Color3.fromRGB(190, 235, 255)
+    labels.mode.TextColor3 = if tostring(s.phase or 'Idle') == 'Wave'
+        then Color3.fromRGB(190, 235, 255)
         else Color3.fromRGB(205, 205, 205)
-    labels.elites.TextColor3 = if (tonumber(s.eliteExpectedCount) or 0) > 0 then Color3.fromRGB(255, 195, 125)
+    labels.elites.TextColor3 = if (tonumber(s.eliteExpectedCount) or 0) > 0
+        then Color3.fromRGB(255, 195, 125)
         else Color3.fromRGB(185, 185, 185)
 end
 
@@ -550,7 +570,8 @@ end
 function HUDController:_updateHudText()
     local s = self._state
     local accessibility = type(GameConfig.VISUAL_ACCESSIBILITY) == 'table' and GameConfig.VISUAL_ACCESSIBILITY or {}
-    local criticalPrefix = accessibility.colorSafeCritical == true and tostring(accessibility.criticalPrefix or '!!') or ''
+    local criticalPrefix = accessibility.colorSafeCritical == true and tostring(accessibility.criticalPrefix or '!!')
+        or ''
     local phase = tostring(s.phase or 'Idle')
     local visualPhaseLabels = type(GameConfig.VISUAL_PHASE_LABELS) == 'table' and GameConfig.VISUAL_PHASE_LABELS or {}
     local modeLabel = tostring(visualPhaseLabels[phase] or phase)
@@ -560,7 +581,9 @@ function HUDController:_updateHudText()
     local baseValue = tonumber(s.baseHealth) or 0
     local baseMax = math.max(1, tonumber(GameConfig.BASE_MAX_HEALTH) or 100)
     local baseWarningThreshold = 0.3
-    local baseLabelPrefix = if criticalPrefix ~= '' and (baseValue / baseMax) <= baseWarningThreshold then (criticalPrefix .. ' ') else ''
+    local baseLabelPrefix = if criticalPrefix ~= '' and (baseValue / baseMax) <= baseWarningThreshold
+        then (criticalPrefix .. ' ')
+        else ''
     self._labels.base.Text = ('%sBase: %s'):format(baseLabelPrefix, tostring(s.baseHealth))
 
     local speedLabel = tostring(s.gameSpeedLabel or '1.0x')
@@ -649,7 +672,6 @@ function HUDController:_createHud()
     screenGui.Parent = playerGui
     self._screenGui = screenGui
     local topInset = getSafeInsets()
-    local safePadding = math.max(0, math.floor(tonumber(GameConfig.UI_SAFE_AREA_PADDING) or 8))
     local topInsetY = math.floor(topInset.Y)
 
     local topBar = Instance.new('Frame')
@@ -718,7 +740,8 @@ function HUDController:_createHud()
 
     if not touchPreferred then
         local notificationCamera = workspace.CurrentCamera
-        local notificationViewportSize = notificationCamera and notificationCamera.ViewportSize or Vector2.new(1280, 720)
+        local notificationViewportSize = notificationCamera and notificationCamera.ViewportSize
+            or Vector2.new(1280, 720)
         local targetNotificationAreaScale = 0.10
         local targetAspectRatio = 2.2
         local baseHeightScale = math.sqrt(targetNotificationAreaScale / targetAspectRatio)
@@ -727,16 +750,14 @@ function HUDController:_createHud()
         local minPanelWidth = 232
         local minPanelHeight = 104
         local panelScaleBoost = 1.520875
-        local panelWidth =
-            math.max(
-                minPanelWidth,
-                math.floor(((notificationViewportSize.X * notificationWidthScale) * panelScaleBoost) + 0.5)
-            )
-        local panelHeight =
-            math.max(
-                minPanelHeight,
-                math.floor(((notificationViewportSize.Y * notificationHeightScale) * panelScaleBoost) + 0.5)
-            )
+        local panelWidth = math.max(
+            minPanelWidth,
+            math.floor(((notificationViewportSize.X * notificationWidthScale) * panelScaleBoost) + 0.5)
+        )
+        local panelHeight = math.max(
+            minPanelHeight,
+            math.floor(((notificationViewportSize.Y * notificationHeightScale) * panelScaleBoost) + 0.5)
+        )
         local notificationsPanel = Instance.new('Frame')
         notificationsPanel.Name = 'NotificationsPanel'
         notificationsPanel.Size = UDim2.fromOffset(panelWidth, panelHeight)
