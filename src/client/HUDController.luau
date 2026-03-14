@@ -4,26 +4,11 @@ local UserInputService = game:GetService('UserInputService')
 local GuiService = game:GetService('GuiService')
 local Shared = ReplicatedStorage:WaitForChild('Shared')
 local GameConfig = require(Shared:WaitForChild('GameConfig'))
-local FAILURE_REASON_TO_MESSAGE = require(Shared:WaitForChild('FailureReasonMessages'))
 local HUDTheme = require(script.Parent:WaitForChild('ui'):WaitForChild('HUDTheme'))
 
 local HUDController = {}
 HUDController.__index = HUDController
 
-local CHANNEL_DEFAULT_HISTORY = {
-    critical = 2,
-    tactical = 2,
-    routine = 2,
-}
-
-local CHANNEL_DEFAULT_MIN_INTERVAL_SECONDS = {
-    critical = 0.0,
-    tactical = 0.2,
-    routine = 0.6,
-}
-
-local MATCH_ENTRY_LAYOUT_VISIBLE_ATTR = 'HUDMatchEntryVisible'
-local MATCH_ENTRY_LAYOUT_BOTTOM_ATTR = 'HUDMatchEntryBottom'
 local SELECTED_PANEL_LAYOUT_VISIBLE_ATTR = 'HUDSelectedTowerPanelVisible'
 local SELECTED_PANEL_LAYOUT_LEFT_ATTR = 'HUDSelectedTowerPanelLeft'
 local SELECTED_PANEL_LAYOUT_TOP_ATTR = 'HUDSelectedTowerPanelTop'
@@ -66,9 +51,6 @@ function HUDController.new(net)
         _connections = {},
         _screenGui = nil,
         _topBar = nil,
-        _notificationsPanel = nil,
-        _notificationsPanelBaseWidth = 0,
-        _notificationsPanelBaseHeight = 0,
         _queueCountdownLabel = nil,
         _labels = {},
         _state = {
@@ -98,79 +80,9 @@ function HUDController.new(net)
             enemySpawnedCount = 0,
             enemyRemainingCount = 0,
         },
-        _notificationRowsByChannel = {
-            critical = {},
-            tactical = {},
-            routine = {},
-        },
-        _notificationChannelTimestamps = {},
         _restartVoteButton = nil,
         _touchPreferred = false,
-        _lastCurrency = nil,
-        _pendingCurrencyGain = 0,
-        _lastCurrencyGainNotifyAt = 0,
-        _lastOutcome = nil,
-        _lastPhase = 'Idle',
-        _lastEnemyLeakedCount = 0,
-        _lastLeakNotifyAt = 0,
-        _lastFailureKey = nil,
-        _lastFailureAt = 0,
-        _remotes = {},
     }, HUDController)
-end
-
-function HUDController:_notifyFallback()
-    -- Intentionally muted: right-side Roblox toast notifications are disabled.
-    return
-end
-
-function HUDController:_resolveNotificationChannel(channel: any): string
-    if channel == 'critical' or channel == true then
-        return 'critical'
-    end
-    if channel == 'tactical' then
-        return 'tactical'
-    end
-    return 'routine'
-end
-
-function HUDController:_pushNotification(text: string, channel: any)
-    if text == '' then
-        return
-    end
-    local resolvedChannel = self:_resolveNotificationChannel(channel)
-    local rows = self._notificationRowsByChannel[resolvedChannel]
-    if not rows or #rows == 0 then
-        self:_notifyFallback()
-        return
-    end
-
-    local intervalConfig = GameConfig.HUD_NOTIFICATION_CHANNEL_MIN_INTERVAL_SECONDS
-    local minInterval = CHANNEL_DEFAULT_MIN_INTERVAL_SECONDS[resolvedChannel] or 0
-    if type(intervalConfig) == 'table' and type(intervalConfig[resolvedChannel]) == 'number' then
-        minInterval = math.max(0, intervalConfig[resolvedChannel])
-    end
-    local nowTime = os.clock()
-    local lastTimestamp = self._notificationChannelTimestamps[resolvedChannel]
-    if type(lastTimestamp) == 'number' and (nowTime - lastTimestamp) < minInterval then
-        return
-    end
-    self._notificationChannelTimestamps[resolvedChannel] = nowTime
-
-    for index = #rows, 2, -1 do
-        rows[index].Text = rows[index - 1].Text
-        rows[index].TextColor3 = rows[index - 1].TextColor3
-    end
-
-    local row = rows[1]
-    row.Text = text
-    if resolvedChannel == 'critical' then
-        row.TextColor3 = Color3.fromRGB(255, 160, 160)
-    elseif resolvedChannel == 'tactical' then
-        row.TextColor3 = Color3.fromRGB(255, 220, 150)
-    else
-        row.TextColor3 = Color3.fromRGB(220, 220, 220)
-    end
 end
 
 function HUDController:_updateTopBarVisibility()
@@ -181,7 +93,6 @@ function HUDController:_updateTopBarVisibility()
     local phase = tostring(self._state.phase or 'Idle')
     local inMapPhase = phase == 'Wave' or phase == 'Results' or phase == 'Cleanup'
     topBar.Visible = inMapPhase
-    self:_updateNotificationsPanelLayout()
 end
 
 function HUDController:_updateVoteButtonVisibility()
@@ -208,105 +119,6 @@ function HUDController:_updateQueueCountdownVisibility()
     if shouldShow then
         label.Text = ('Queue starts in %ds'):format(math.max(0, math.floor(timeRemaining)))
     end
-end
-
-function HUDController:_getTopLeftLayoutConfig()
-    local layoutConfig = GameConfig.HUD_LAYOUT
-    local topLeftStack = type(layoutConfig) == 'table' and layoutConfig.topLeftStack or nil
-    return {
-        panelVerticalGap = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.panelVerticalGap) or 10)),
-        matchEntryPanelOffsetY = math.floor(tonumber(topLeftStack and topLeftStack.matchEntryPanelOffsetY) or 10),
-        matchEntryPanelHeight = math.max(
-            0,
-            math.floor(tonumber(topLeftStack and topLeftStack.matchEntryPanelHeight) or 124)
-        ),
-        minTopClearance = math.max(
-            0,
-            math.floor(tonumber(topLeftStack and topLeftStack.minTopClearanceFromCoreGui) or 15)
-        ),
-        coreUiReservedWidth = math.max(
-            0,
-            math.floor(tonumber(topLeftStack and topLeftStack.coreUiReservedWidth) or 190)
-        ),
-        coreUiReservedHeight = math.max(
-            0,
-            math.floor(tonumber(topLeftStack and topLeftStack.coreUiReservedHeight) or 56)
-        ),
-        coreUiReservedGap = math.max(0, math.floor(tonumber(topLeftStack and topLeftStack.coreUiReservedGap) or 12)),
-        notificationPanelMinTopOffset = math.max(
-            0,
-            math.floor(tonumber(topLeftStack and topLeftStack.notificationPanelMinTopOffset) or 48)
-        ),
-        notificationViewportDropScale = math.max(
-            0,
-            tonumber(topLeftStack and topLeftStack.notificationViewportDropScale) or 0.05
-        ),
-        notificationLeftOffset = math.floor(tonumber(topLeftStack and topLeftStack.notificationLeftOffset) or 10),
-        notificationBottomMargin = math.max(
-            0,
-            math.floor(tonumber(topLeftStack and topLeftStack.notificationBottomMargin) or 8)
-        ),
-    }
-end
-
-function HUDController:_updateNotificationsPanelLayout()
-    local panel = self._notificationsPanel
-    if not panel or not panel.Parent then
-        return
-    end
-
-    local camera = workspace.CurrentCamera
-    local viewportSize = camera and camera.ViewportSize or Vector2.new(1280, 720)
-    local topInset = getSafeInsets()
-    local topInsetY = math.floor(topInset.Y)
-    local layout = self:_getTopLeftLayoutConfig()
-    local verticalDropPixels = math.max(5, math.floor((viewportSize.Y * layout.notificationViewportDropScale) + 0.5))
-    local targetTop = topInsetY + layout.minTopClearance + layout.notificationPanelMinTopOffset + verticalDropPixels
-    local phase = tostring(self._state.phase or 'Idle')
-    if phase == 'Lobby' then
-        local localPlayer = Players.LocalPlayer
-        local playerGui = localPlayer and localPlayer:FindFirstChildOfClass('PlayerGui')
-        local lobbyVisible = playerGui and playerGui:GetAttribute(MATCH_ENTRY_LAYOUT_VISIBLE_ATTR) == true
-        local lobbyBottom = if playerGui and lobbyVisible
-            then tonumber(playerGui:GetAttribute(MATCH_ENTRY_LAYOUT_BOTTOM_ATTR)) or 0
-            else 0
-        if lobbyBottom <= 0 then
-            lobbyBottom = topInsetY
-                + math.max(layout.matchEntryPanelOffsetY, layout.minTopClearance)
-                + layout.matchEntryPanelHeight
-        end
-        targetTop = math.max(targetTop, math.floor(lobbyBottom) + layout.panelVerticalGap)
-    end
-
-    local panelHeight = self._notificationsPanelBaseHeight
-    if panelHeight <= 0 then
-        panelHeight = panel.AbsoluteSize.Y
-    end
-    local panelWidth = self._notificationsPanelBaseWidth
-    if panelWidth <= 0 then
-        panelWidth = panel.AbsoluteSize.X
-    end
-    local reservedLeft = 0
-    local reservedTop = topInsetY
-    local reservedRight = layout.coreUiReservedWidth
-    local reservedBottom = topInsetY + layout.coreUiReservedHeight
-
-    local targetLeft = layout.notificationLeftOffset
-    local intersectsReserved = targetLeft < reservedRight
-        and (targetLeft + panelWidth) > reservedLeft
-        and targetTop < reservedBottom
-        and (targetTop + panelHeight) > reservedTop
-    if intersectsReserved then
-        targetLeft = reservedRight + layout.coreUiReservedGap
-    end
-
-    local maxTop = viewportSize.Y - panelHeight - layout.notificationBottomMargin
-    if targetTop > maxTop then
-        panel.Visible = false
-        return
-    end
-    panel.Visible = true
-    panel.Position = UDim2.fromOffset(targetLeft, targetTop)
 end
 
 function HUDController:_updateResponsiveHudLayout()
@@ -384,7 +196,6 @@ function HUDController:_updateResponsiveHudLayout()
     end
 
     self:_layoutTopBarLabels()
-    self:_updateNotificationsPanelLayout()
 end
 
 function HUDController:_bindTopLeftLayoutFootprint()
@@ -394,8 +205,6 @@ function HUDController:_bindTopLeftLayoutFootprint()
         return
     end
     local attrs = {
-        MATCH_ENTRY_LAYOUT_VISIBLE_ATTR,
-        MATCH_ENTRY_LAYOUT_BOTTOM_ATTR,
         SELECTED_PANEL_LAYOUT_VISIBLE_ATTR,
         SELECTED_PANEL_LAYOUT_LEFT_ATTR,
         SELECTED_PANEL_LAYOUT_TOP_ATTR,
@@ -407,7 +216,6 @@ function HUDController:_bindTopLeftLayoutFootprint()
             self._connections,
             playerGui:GetAttributeChangedSignal(attrName):Connect(function()
                 self:_updateResponsiveHudLayout()
-                self:_updateNotificationsPanelLayout()
             end)
         )
     end
@@ -671,8 +479,6 @@ function HUDController:_createHud()
     screenGui.IgnoreGuiInset = true
     screenGui.Parent = playerGui
     self._screenGui = screenGui
-    local topInset = getSafeInsets()
-    local topInsetY = math.floor(topInset.Y)
 
     local topBar = Instance.new('Frame')
     topBar.Name = 'TopBar'
@@ -737,118 +543,6 @@ function HUDController:_createHud()
     self._queueCountdownLabel = queueCountdownLabel
     self:_updateQueueCountdownVisibility()
     self:_bindVoteButtons()
-
-    if not touchPreferred then
-        local notificationCamera = workspace.CurrentCamera
-        local notificationViewportSize = notificationCamera and notificationCamera.ViewportSize
-            or Vector2.new(1280, 720)
-        local targetNotificationAreaScale = 0.10
-        local targetAspectRatio = 2.2
-        local baseHeightScale = math.sqrt(targetNotificationAreaScale / targetAspectRatio)
-        local notificationWidthScale = math.clamp(baseHeightScale * targetAspectRatio, 0.26, 0.5)
-        local notificationHeightScale = math.clamp(baseHeightScale, 0.12, 0.3)
-        local minPanelWidth = 232
-        local minPanelHeight = 104
-        local panelScaleBoost = 1.520875
-        local panelWidth = math.max(
-            minPanelWidth,
-            math.floor(((notificationViewportSize.X * notificationWidthScale) * panelScaleBoost) + 0.5)
-        )
-        local panelHeight = math.max(
-            minPanelHeight,
-            math.floor(((notificationViewportSize.Y * notificationHeightScale) * panelScaleBoost) + 0.5)
-        )
-        local notificationsPanel = Instance.new('Frame')
-        notificationsPanel.Name = 'NotificationsPanel'
-        notificationsPanel.Size = UDim2.fromOffset(panelWidth, panelHeight)
-        notificationsPanel.Position = UDim2.fromOffset(10, topInsetY + 48)
-        notificationsPanel.ClipsDescendants = true
-        notificationsPanel.Parent = screenGui
-        self._notificationsPanel = notificationsPanel
-        self._notificationsPanelBaseWidth = panelWidth
-        self._notificationsPanelBaseHeight = panelHeight
-        HUDTheme.applySurface(notificationsPanel, {
-            cornerRadius = 10,
-            strokeThickness = 1.25,
-            strokeTransparency = 0.22,
-        })
-
-        local historyConfig = GameConfig.HUD_NOTIFICATION_CHANNEL_HISTORY
-        local function resolveChannelHistory(channelName: string): number
-            local fallback = CHANNEL_DEFAULT_HISTORY[channelName] or 2
-            if type(historyConfig) == 'table' and type(historyConfig[channelName]) == 'number' then
-                fallback = historyConfig[channelName]
-            end
-            return math.clamp(math.floor(fallback), 1, 4)
-        end
-
-        local panelPaddingX = 7
-        local panelPaddingTop = 7
-        local panelPaddingBottom = 7
-        local channelGap = 3
-        local channelsCount = 3
-        local contentHeight =
-            math.max(36, panelHeight - panelPaddingTop - panelPaddingBottom - ((channelsCount - 1) * channelGap))
-        local channelHeight = math.max(12, math.floor(contentHeight / channelsCount))
-
-        local function createChannelRows(channelName: string, title: string, channelIndex: number)
-            local segmentTop = panelPaddingTop + ((channelIndex - 1) * (channelHeight + channelGap))
-            local segmentHeight = channelHeight
-            if channelIndex == channelsCount then
-                segmentHeight = math.max(panelPaddingBottom, panelHeight - panelPaddingBottom - segmentTop)
-            end
-            local titleHeight = 11
-            local rowGap = 1
-            local rowsAvailableHeight = math.max(10, segmentHeight - titleHeight)
-            local maxRowsBySpace = math.max(1, math.floor((rowsAvailableHeight + rowGap) / (11 + rowGap)))
-
-            local titleLabel = Instance.new('TextLabel')
-            titleLabel.Name = ('%sTitle'):format(channelName)
-            titleLabel.Size = UDim2.new(1, -(panelPaddingX * 2), 0, titleHeight)
-            titleLabel.Position = UDim2.fromOffset(panelPaddingX, segmentTop)
-            titleLabel.BackgroundTransparency = 1
-            titleLabel.Text = title
-            titleLabel.Parent = notificationsPanel
-            HUDTheme.applyText(titleLabel, {
-                textXAlignment = Enum.TextXAlignment.Left,
-                textSize = 10,
-            })
-            if channelName == 'critical' then
-                titleLabel.TextColor3 = Color3.fromRGB(255, 170, 170)
-            elseif channelName == 'tactical' then
-                titleLabel.TextColor3 = Color3.fromRGB(255, 220, 150)
-            else
-                titleLabel.TextColor3 = Color3.fromRGB(190, 190, 190)
-            end
-
-            local rows = {}
-            local rowCount = math.min(resolveChannelHistory(channelName), maxRowsBySpace)
-            local rowHeight = math.max(9, math.floor((rowsAvailableHeight - ((rowCount - 1) * rowGap)) / rowCount))
-            local rowTextSize = (rowHeight <= 10) and 10 or 11
-            for index = 1, rowCount do
-                local row = Instance.new('TextLabel')
-                row.Name = ('%sRow%d'):format(channelName, index)
-                row.Size = UDim2.new(1, -(panelPaddingX * 2), 0, rowHeight)
-                row.Position =
-                    UDim2.fromOffset(panelPaddingX, segmentTop + titleHeight + ((index - 1) * (rowHeight + rowGap)))
-                row.BackgroundTransparency = 1
-                row.Text = ''
-                row.Parent = notificationsPanel
-                HUDTheme.applyText(row, {
-                    textXAlignment = Enum.TextXAlignment.Left,
-                    textSize = rowTextSize,
-                })
-                row.TextColor3 = Color3.fromRGB(220, 220, 220)
-                table.insert(rows, row)
-            end
-            self._notificationRowsByChannel[channelName] = rows
-        end
-
-        createChannelRows('critical', 'Critical', 1)
-        createChannelRows('tactical', 'Tactical', 2)
-        createChannelRows('routine', 'Routine', 3)
-        self:_updateNotificationsPanelLayout()
-    end
     self:_updateResponsiveHudLayout()
 end
 
@@ -889,7 +583,6 @@ function HUDController:_bindRoundStatus()
         self._connections,
         roundStatusRemote.OnClientEvent:Connect(function(payload)
             local state = self._state
-            local previousPhase = self._lastPhase
 
             state.phase = payload and payload.phase or state.phase
             state.timeRemaining = payload and payload.timeRemaining or '-'
@@ -928,129 +621,11 @@ function HUDController:_bindRoundStatus()
             if state.phase == 'Lobby' then
                 state.towerCount = 0
             end
-            self._lastPhase = state.phase
             self:_updateTopBarVisibility()
             self:_updateQueueCountdownVisibility()
             self:_updateVoteButtonVisibility()
 
-            if state.phase == 'Wave' and previousPhase ~= 'Wave' then
-                self:_pushNotification(('Round %s started'):format(tostring(state.roundNumber)), 'tactical')
-                if type(state.roundMutatorThreatHint) == 'string' and state.roundMutatorThreatHint ~= '' then
-                    self:_pushNotification(('Mutator: %s'):format(state.roundMutatorThreatHint), 'tactical')
-                end
-            end
-
-            local outcome = payload and payload.outcome
-            if outcome and outcome ~= self._lastOutcome then
-                self._lastOutcome = outcome
-                self:_pushNotification(('Round complete: %s'):format(tostring(outcome)), 'critical')
-            elseif not outcome then
-                self._lastOutcome = nil
-            end
-
-            local enemyLeakedCount = payload and payload.enemyLeakedCount
-            if type(enemyLeakedCount) == 'number' then
-                local previousLeakCount = tonumber(self._lastEnemyLeakedCount) or 0
-                local leakCooldown = math.max(0.1, tonumber(GameConfig.HUD_LEAK_NOTIFY_COOLDOWN_SECONDS) or 1.5)
-                local nowTime = os.clock()
-                if enemyLeakedCount > previousLeakCount and (nowTime - self._lastLeakNotifyAt) >= leakCooldown then
-                    local baseHealth = payload and payload.baseHealth
-                    self:_pushNotification(('Leak pressure! Base health: %s'):format(tostring(baseHealth)), 'critical')
-                    self._lastLeakNotifyAt = nowTime
-                end
-                self._lastEnemyLeakedCount = enemyLeakedCount
-            end
-
             self:_updateHudText()
-        end)
-    )
-end
-
-function HUDController:_bindSystemMessage()
-    local systemMessageRemote = getRemoteEvent(self._net.ServerToClient.SystemMessage, 5)
-    if not systemMessageRemote then
-        return
-    end
-
-    table.insert(
-        self._connections,
-        systemMessageRemote.OnClientEvent:Connect(function(payload)
-            local text = payload and payload.text or ''
-            if text == '' then
-                return
-            end
-            local _, queueMessage = string.match(text, '^%[Queue%]%[([%w_]+)%]%s*(.*)$')
-            local displayText = if queueMessage and queueMessage ~= '' then queueMessage else text
-            local isCritical = string.find(string.upper(displayText), 'FAIL', 1, true) ~= nil
-            local channel = isCritical and 'critical' or 'tactical'
-            self:_pushNotification(displayText, channel)
-        end)
-    )
-end
-
-function HUDController:_bindEconomy()
-    local economyUpdatedRemote = getRemoteEvent(self._net.ServerToClient.EconomyUpdated, 5)
-    if not economyUpdatedRemote then
-        return
-    end
-
-    table.insert(
-        self._connections,
-        economyUpdatedRemote.OnClientEvent:Connect(function(payload)
-            local currency = payload and payload.currency
-            if type(currency) ~= 'number' then
-                return
-            end
-
-            self._state.currency = currency
-            local previous = self._lastCurrency
-            self._lastCurrency = currency
-            if previous == nil then
-                self:_pushNotification(('Currency: %d'):format(currency), 'routine')
-            elseif currency > previous then
-                self._pendingCurrencyGain += (currency - previous)
-                local nowTime = os.clock()
-                local batchMinGain = math.max(1, tonumber(GameConfig.HUD_CURRENCY_BATCH_MIN_GAIN) or 25)
-                local maxDelay = math.max(0.1, tonumber(GameConfig.HUD_CURRENCY_BATCH_MAX_DELAY_SECONDS) or 1.0)
-                local shouldFlush = self._pendingCurrencyGain >= batchMinGain
-                    or (nowTime - self._lastCurrencyGainNotifyAt) >= maxDelay
-                if shouldFlush then
-                    self._lastCurrencyGainNotifyAt = nowTime
-                    self:_pushNotification(
-                        ('+%d currency (total %d)'):format(self._pendingCurrencyGain, currency),
-                        'routine'
-                    )
-                    self._pendingCurrencyGain = 0
-                end
-            end
-            self:_updateHudText()
-        end)
-    )
-end
-
-function HUDController:_bindPlacementFailures()
-    local failedRemote = getRemoteEvent(self._net.ServerToClient.TowerPlacementFailed, 5)
-    if not failedRemote then
-        return
-    end
-
-    table.insert(
-        self._connections,
-        failedRemote.OnClientEvent:Connect(function(payload)
-            local reasonCode = payload and payload.reasonCode or 'INTERNAL_ERROR'
-            local message = FAILURE_REASON_TO_MESSAGE[reasonCode] or (payload and payload.message) or ''
-            if message == '' then
-                return
-            end
-
-            local nowTime = os.clock()
-            local dedupKey = ('%s|%s'):format(tostring(payload and payload.requestType), tostring(reasonCode))
-            if dedupKey == self._lastFailureKey and (nowTime - self._lastFailureAt) < 0.35 then
-                return
-            end
-            self._lastFailureKey = dedupKey
-            self._lastFailureAt = nowTime
-            self:_pushNotification(message, 'tactical')
         end)
     )
 end
@@ -1064,9 +639,6 @@ function HUDController:start()
     self:_createHud()
     self:_bindTopLeftLayoutFootprint()
     self:_bindRoundStatus()
-    self:_bindSystemMessage()
-    self:_bindEconomy()
-    self:_bindPlacementFailures()
     self:_bindTowerRuntimeCounters()
     self:_updateHudText()
 end
@@ -1081,36 +653,16 @@ function HUDController:stop()
         connection:Disconnect()
     end
     table.clear(self._connections)
-    for channelName, rows in pairs(self._notificationRowsByChannel) do
-        if type(rows) == 'table' then
-            table.clear(rows)
-        end
-        self._notificationRowsByChannel[channelName] = {}
-    end
-    table.clear(self._notificationChannelTimestamps)
     table.clear(self._labels)
 
     if self._screenGui then
         self._screenGui:Destroy()
         self._screenGui = nil
     end
-    self._lastCurrency = nil
-    self._pendingCurrencyGain = 0
-    self._lastCurrencyGainNotifyAt = 0
-    self._lastOutcome = nil
-    self._lastPhase = 'Idle'
-    self._lastEnemyLeakedCount = 0
-    self._lastLeakNotifyAt = 0
-    self._lastFailureKey = nil
-    self._lastFailureAt = 0
     self._topBar = nil
-    self._notificationsPanel = nil
-    self._notificationsPanelBaseWidth = 0
-    self._notificationsPanelBaseHeight = 0
     self._queueCountdownLabel = nil
     self._restartVoteButton = nil
     self._touchPreferred = false
-    table.clear(self._remotes)
 end
 
 return HUDController

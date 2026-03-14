@@ -65,6 +65,96 @@ local function getPreferredTemplateSetForMap(mapName: string, templates: { Model
     return templates
 end
 
+local function resolveTemplateSpawnHeightOffset(config, templateName: string): number
+    local overrides = if type(config.ENEMY_SPAWN_HEIGHT_OFFSET_BY_TEMPLATE) == 'table'
+        then config.ENEMY_SPAWN_HEIGHT_OFFSET_BY_TEMPLATE
+        else nil
+
+    if overrides then
+        local exactOverride = tonumber(overrides[templateName])
+        if exactOverride ~= nil then
+            return exactOverride
+        end
+        local lowercaseOverride = tonumber(overrides[string.lower(templateName)])
+        if lowercaseOverride ~= nil then
+            return lowercaseOverride
+        end
+    end
+
+    return tonumber(config.ENEMY_SPAWN_HEIGHT_OFFSET_STUDS) or 0
+end
+
+local function resolveTemplateFacingRotationOffsetDeg(config, templateName: string): Vector3
+    local overrides = if type(config.ENEMY_FACING_ROTATION_OFFSET_DEG_BY_TEMPLATE) == 'table'
+        then config.ENEMY_FACING_ROTATION_OFFSET_DEG_BY_TEMPLATE
+        else nil
+
+    local function parseRotationOffset(raw): Vector3?
+        if type(raw) == 'number' then
+            return Vector3.new(0, raw, 0)
+        end
+        if type(raw) ~= 'table' then
+            return nil
+        end
+
+        local x = tonumber(raw.x or raw.X or raw[1]) or 0
+        local y = tonumber(raw.y or raw.Y or raw[2]) or 0
+        local z = tonumber(raw.z or raw.Z or raw[3]) or 0
+        return Vector3.new(x, y, z)
+    end
+
+    if overrides then
+        local exactOverride = parseRotationOffset(overrides[templateName])
+        if exactOverride ~= nil then
+            return exactOverride
+        end
+        local lowercaseOverride = parseRotationOffset(overrides[string.lower(templateName)])
+        if lowercaseOverride ~= nil then
+            return lowercaseOverride
+        end
+    end
+
+    -- Backward compatibility: keep supporting yaw-only overrides.
+    local legacyYawOverrides = if type(config.ENEMY_FACING_YAW_OFFSET_DEG_BY_TEMPLATE) == 'table'
+        then config.ENEMY_FACING_YAW_OFFSET_DEG_BY_TEMPLATE
+        else nil
+    if legacyYawOverrides then
+        local exactLegacyYaw = tonumber(legacyYawOverrides[templateName])
+        if exactLegacyYaw ~= nil then
+            return Vector3.new(0, exactLegacyYaw, 0)
+        end
+        local lowercaseLegacyYaw = tonumber(legacyYawOverrides[string.lower(templateName)])
+        if lowercaseLegacyYaw ~= nil then
+            return Vector3.new(0, lowercaseLegacyYaw, 0)
+        end
+    end
+
+    return Vector3.zero
+end
+
+local function toRotationOffsetCFrame(rotationOffsetDeg: Vector3): CFrame
+    return CFrame.fromOrientation(
+        math.rad(rotationOffsetDeg.X),
+        math.rad(rotationOffsetDeg.Y),
+        math.rad(rotationOffsetDeg.Z)
+    )
+end
+
+local function orientModelToward(
+    model: Model,
+    root: BasePart,
+    lookDirection: Vector3,
+    rootFromPivot: CFrame,
+    facingRotationOffset: CFrame
+)
+    if lookDirection.Magnitude <= 0 then
+        lookDirection = root.CFrame.LookVector
+    end
+    local desiredRootCFrame = CFrame.new(root.Position, root.Position + lookDirection) * facingRotationOffset
+    local desiredPivot = desiredRootCFrame * rootFromPivot:Inverse()
+    model:PivotTo(desiredPivot)
+end
+
 local function collectWaypointParts(waypointsFolder: Instance): { BasePart }
     local waypointParts = {}
 
@@ -601,7 +691,16 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
 
     local record = self._activeEnemies[enemyId]
     local moveSpeed = tonumber(record and record.moveSpeed) or self:_computeEnemyMoveSpeed()
-    local pathHeightOffset = tonumber(self._config.ENEMY_SPAWN_HEIGHT_OFFSET_STUDS) or 0
+    local pathHeightOffset = tonumber(record and record.pathHeightOffset)
+    if pathHeightOffset == nil then
+        pathHeightOffset = tonumber(self._config.ENEMY_SPAWN_HEIGHT_OFFSET_STUDS) or 0
+    end
+    local rootFromPivot = if record and typeof(record.rootFromPivot) == 'CFrame'
+        then record.rootFromPivot
+        else model:GetPivot():ToObjectSpace(root.CFrame)
+    local facingRotationOffset = if record and typeof(record.facingRotationOffset) == 'CFrame'
+        then record.facingRotationOffset
+        else CFrame.new()
     local resolveReason = 'UNKNOWN'
     local reachedWaypointCount = 0
 
@@ -645,12 +744,13 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
             local step = math.min(moveSpeed * MOVE_TICK_SECONDS, distance)
             local nextPosition = currentPosition + (offset.Unit * step)
 
-            -- Move the whole model so multi-part enemies don't visually stay behind at spawn.
-            local lookDirection = offset.Unit
-            if lookDirection.Magnitude <= 0 then
-                lookDirection = root.CFrame.LookVector
+            -- Move using world-space translation so models with custom pivots still path correctly.
+            local translation = nextPosition - currentPosition
+            if translation.Magnitude > 0 then
+                model:TranslateBy(translation)
             end
-            model:PivotTo(CFrame.new(nextPosition, nextPosition + lookDirection))
+            local lookDirection = offset.Unit
+            orientModelToward(model, root, lookDirection, rootFromPivot, facingRotationOffset)
             local liveRecord = self._activeEnemies[enemyId]
             if liveRecord and #waypoints > 0 then
                 local remainingDistance = (nextPosition - targetPosition).Magnitude
@@ -677,7 +777,12 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
         end
 
         if (root.Position - targetPosition).Magnitude <= WAYPOINT_REACH_DISTANCE then
-            model:PivotTo(CFrame.new(targetPosition, targetPosition + root.CFrame.LookVector))
+            local correction = targetPosition - root.Position
+            if correction.Magnitude > 0 then
+                model:TranslateBy(correction)
+            end
+            local lookDirection = root.CFrame.LookVector
+            orientModelToward(model, root, lookDirection, rootFromPivot, facingRotationOffset)
             reachedWaypointCount = waypointIndex
             local liveRecord = self._activeEnemies[enemyId]
             if liveRecord and #waypoints > 0 then
@@ -805,8 +910,11 @@ function EnemyService:spawnSingleEnemy()
     local preparedPartCount = prepareEnemyForPathing(enemyModel)
 
     enemyModel.Parent = map
-    local spawnHeightOffset = tonumber(self._config.ENEMY_SPAWN_HEIGHT_OFFSET_STUDS) or 0
+    local spawnHeightOffset = resolveTemplateSpawnHeightOffset(self._config, selectedTemplate.Name)
+    local facingRotationOffsetDeg = resolveTemplateFacingRotationOffsetDeg(self._config, selectedTemplate.Name)
+    local facingRotationOffset = toRotationOffsetCFrame(facingRotationOffsetDeg)
     enemyModel:PivotTo(chosenSpawn.CFrame + Vector3.new(0, spawnHeightOffset, 0))
+    local rootFromPivot = enemyModel:GetPivot():ToObjectSpace(root.CFrame)
     self:_debugPathingLog(('spawnCheck preparedParts=%d enemyModel=%s'):format(preparedPartCount, enemyModel.Name))
     self._spawnedThisRun += 1
     local spawnOrdinal = self._spawnedThisRun
@@ -858,6 +966,9 @@ function EnemyService:spawnSingleEnemy()
         moveSpeed = moveSpeed,
         maxHealth = maxHealth,
         health = health,
+        pathHeightOffset = spawnHeightOffset,
+        rootFromPivot = rootFromPivot,
+        facingRotationOffset = facingRotationOffset,
         pathProgress = 0,
     }
 

@@ -69,7 +69,7 @@ Last updated: 2026-03-08
 ### Milestone 2 (Steps 6-10) - Complete
 
 - Step 6 implemented (prominent Play CTA treatment):
-  - Added dedicated `MatchEntryController` panel with explicit `Play`, `Stage`, and `Ready` actions.
+  - Added explicit lobby entry actions for queue flow.
   - `Play` action now issues deterministic queue entry intent (`RequestCreateMatch`) with request id and selected stage context.
 - Step 7 implemented (Stage selection modal flow):
   - Added stage modal with stage/act rows, lock labels, and reward previews.
@@ -86,14 +86,13 @@ Last updated: 2026-03-08
   - `QueueService` queue-specific system messaging now emits reason-coded envelope text:
     - reject path: `[Queue][<REASON_CODE>] <message>`
     - success/ready path examples: `[Queue][QUEUED]`, `[Queue][READY_SET]`, `[Queue][READY_UNSET]`
-  - `MatchEntryController` now parses queue reason codes and maps them to concise user-facing transition/failure copy.
   - `HUDController` and `RoundController` now strip queue envelope prefixes for readable copy parity.
 - Step 10 hard-stop checkpoint:
   - engineering sanity:
-    - `selene src/client/MatchEntryController.luau src/client/init.client.luau src/client/RoundController.luau src/client/HUDController.luau src/server/QueueService.luau src/shared/GameConfig.luau`: PASS (0 errors, 0 warnings)
+    - `selene src/client/init.client.luau src/client/RoundController.luau src/client/HUDController.luau src/server/QueueService.luau src/shared/GameConfig.luau`: PASS (0 errors, 0 warnings)
     - `rojo build default.project.json --output build_m2_hardstop.rbxlx`: PASS (temp output removed)
-  - verification evidence (`Play -> Stage -> Ready` clarity + determinism):
-    - entry chain is explicit in UI surface and ordered by design (`Play`, `Stage`, `Ready`) with deterministic disabled states.
+  - verification evidence (entry flow clarity + determinism):
+    - entry chain uses deterministic disabled states and server-authoritative queue gating.
     - queue state and countdown transitions are surfaced from authoritative `RoundStatus` payloads.
     - ready lock/failure states are reason-coded and visible through queue code mapping.
   - hard-stop standard integrity:
@@ -291,28 +290,26 @@ Last updated: 2026-03-08
 - Step 36 implemented (full cross-phase visual consistency pass):
   - Added centralized phase label contract in `GameConfig.VISUAL_PHASE_LABELS` and aligned combat strip mode labeling in `HUDController`.
   - Added phase-visibility normalization in `TowerPlacementController` so placement inventory/selected panel/preview surfaces are explicitly wave-gated.
-  - Preserved lobby-specific entry flow visibility in `MatchEntryController` and retained deterministic queue-to-wave transition behavior.
+  - Retained deterministic queue-to-wave transition behavior across active client surfaces.
 - Step 37 implemented (visual telemetry marker normalization):
   - Added centralized visual telemetry marker contract in `GameConfig.VISUAL_TELEMETRY`.
   - Added normalized `[Telemetry][VisualUX]` marker emission with rate-limited payloads:
-    - `MatchEntryController`: phase-surface transitions (`phase_surface`),
     - `TowerPlacementController`: placement preview clarity (`placement_preview`), tower selection interactions (`tower_selection`), target mode interactions (`tower_target_mode`), reject reason surfaces (`reject_reason`).
   - Extended `TowerPlacementService` reject telemetry payloads with explicit `reasonMessage` while preserving existing server-owned telemetry channel contract.
 - Step 38 evidence checklist status (phase-based capture):
-  - entry flow evidence surface: lobby-only `Play -> Stage -> Ready` panel visibility and queue transition status cues in `MatchEntryController`.
+  - entry flow evidence surface: lobby queue transition status cues remain deterministic and server-driven.
   - placement flow evidence surface: wave-only placement inventory/preview controls and explicit phase badge in `TowerPlacementController`.
   - combat/readability evidence surface: centralized phase label mapping and tactical strip consistency in `HUDController`.
   - rejection clarity evidence surface: normalized visual telemetry markers for reject reasons + centralized failure reason mapping path.
   - cleanup/end-state evidence surface: phase transitions force placement disarm and hide transient placement UI outside wave.
 - Step 39 multiplayer visual polish soak:
   - validated multiplayer-sensitive transition hooks remain deterministic in code paths:
-    - queue/lobby/wave transition surfaces (`MatchEntryController`),
     - wave-only action gating + selected panel stability (`TowerPlacementController`),
     - phase-gated vote controls and round status handling (`HUDController`/`RoundController`).
   - release-gate summary channels remain intact and available for runtime soak validation (`[ReleaseGate][Round]`, `[ReleaseGate][Session]` in `RoundService`).
 - Step 40 hard-stop checkpoint (Milestone 8 / Launch Visual Gate):
   - engineering sanity:
-    - `selene src/client/HUDController.luau src/client/MatchEntryController.luau src/client/TowerPlacementController.luau src/server/TowerPlacementService.luau src/shared/GameConfig.luau`: PASS (0 errors, 0 warnings)
+    - `selene src/client/HUDController.luau src/client/TowerPlacementController.luau src/server/TowerPlacementService.luau src/shared/GameConfig.luau`: PASS (0 errors, 0 warnings)
     - `rojo build default.project.json --output build_m8_hardstop.rbxlx`: PASS (temp output removed)
   - launch-gate evidence summary:
     - visual language is now consistent and phase-aware across lobby, placement, combat, and results surfaces.
@@ -522,7 +519,6 @@ Last updated: 2026-03-08
 - `src/server/QueueService.luau`
 - `src/client/HUDController.luau`
 - `src/client/RoundController.luau`
-- `src/client/MatchEntryController.luau`
 - `src/client/TowerPlacementController.luau`
 - `src/client/TowerVisualController.luau`
 - `src/client/init.client.luau`

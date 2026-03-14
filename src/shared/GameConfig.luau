@@ -80,6 +80,15 @@ local GameConfig = {
     ENEMY_PER_WAVE = 10,
     ENEMY_SPAWN_INTERVAL_SECONDS = 1.0,
     ENEMY_SPAWN_HEIGHT_OFFSET_STUDS = 4,
+    ENEMY_SPAWN_HEIGHT_OFFSET_BY_TEMPLATE = {
+        -- greenenemy02 has a configured PrimaryPart and should not receive the default +4 lift.
+        greenenemy02 = 2,
+    },
+    ENEMY_FACING_ROTATION_OFFSET_DEG_BY_TEMPLATE = {
+        -- Per-template orientation correction (degrees): x=pitch, y=yaw, z=roll.
+        -- Use this to align imported models to path direction while keeping them upright.
+        greenenemy02 = { x = 0, y = 180, z = 0 },
+    },
     ENEMY_MOVE_SPEED = 12,
     ENEMY_MOVE_SPEED_PER_ROUND = 0.2,
     ENEMY_BASE_HEALTH = 40,
@@ -620,24 +629,6 @@ local GameConfig = {
     UI_SAFE_AREA_PADDING = 8,
     UI_TOUCH_MIN_BUTTON_WIDTH = 150,
     UI_TOUCH_MIN_BUTTON_HEIGHT = 48,
-    HUD_LAYOUT = {
-        topLeftStack = {
-            matchEntryPanelWidth = 340,
-            matchEntryPanelHeight = 124,
-            matchEntryPanelOffsetX = 12,
-            matchEntryPanelOffsetY = 15,
-            minTopClearanceFromCoreGui = 15,
-            coreUiReservedWidth = 190,
-            coreUiReservedHeight = 56,
-            coreUiReservedGap = 12,
-            panelVerticalGap = 10,
-            notificationPanelMinTopOffset = 48,
-            notificationViewportDropScale = 0.05,
-            notificationLeftOffset = 10,
-            notificationBottomMargin = 8,
-            notificationMinVisibleHeight = 72,
-        },
-    },
     -- Milestone 7 Step 33: responsive combat strip for narrow/notched screens.
     HUD_COMBAT_STRIP_LAYOUT = {
         desktop = {
@@ -739,20 +730,6 @@ local GameConfig = {
         },
     },
     CLIENT_USE_HUD_CONTROLLER = true,
-    HUD_NOTIFICATION_CHANNEL_HISTORY = {
-        critical = 2,
-        tactical = 2,
-        routine = 2,
-    },
-    HUD_NOTIFICATION_CHANNEL_MIN_INTERVAL_SECONDS = {
-        critical = 0.0,
-        tactical = 0.2,
-        routine = 0.6,
-    },
-    HUD_LEAK_NOTIFY_COOLDOWN_SECONDS = 1.5,
-    HUD_CURRENCY_BATCH_MIN_GAIN = 25,
-    HUD_CURRENCY_BATCH_MAX_DELAY_SECONDS = 1.0,
-
     REQUEST_RATE_LIMITS = {
         RequestCreateMatch = { maxRequests = 2, perSeconds = 5 },
         RequestReady = { maxRequests = 4, perSeconds = 5 },
