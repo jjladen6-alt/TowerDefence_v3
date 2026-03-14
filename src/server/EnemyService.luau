@@ -197,6 +197,7 @@ function EnemyService.new(gameConfig)
         _spawnedThisRun = 0,
         _nextEnemyId = 1,
         _activeEnemies = {},
+        _rng = Random.new(),
         _onEnemyLeaked = nil,
         _onEnemyDied = nil,
         _debugPathing = gameConfig.DEBUG_WAYPOINT_PATHING == true,
@@ -746,13 +747,15 @@ function EnemyService:spawnSingleEnemy()
 
     local spawnPoints = enemySpawnsFolder:GetChildren()
     sortByNameDeterministic(spawnPoints)
-
-    local chosenSpawn: BasePart? = nil
+    local validSpawnPoints = {}
     for _, candidate in ipairs(spawnPoints) do
         if candidate:IsA('BasePart') then
-            chosenSpawn = candidate
-            break
+            table.insert(validSpawnPoints, candidate)
         end
+    end
+    local chosenSpawn: BasePart? = nil
+    if #validSpawnPoints > 0 then
+        chosenSpawn = validSpawnPoints[self._rng:NextInteger(1, #validSpawnPoints)]
     end
     if not chosenSpawn then
         return false, 'NO_VALID_SPAWN_POINT'
