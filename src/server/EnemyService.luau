@@ -40,22 +40,28 @@ end
 
 local function getPreferredTemplateSetForMap(mapName: string, templates: { Model }): { Model }
     local normalizedMap = string.lower(mapName or '')
-    if normalizedMap ~= 'green' then
-        return templates
-    end
-
-    local preferred = {}
+    local greenSet = {}
+    local nonGreenSet = {}
     for _, template in ipairs(templates) do
         local templateName = string.lower(template.Name)
         if string.match(templateName, '^greenenemy%d+$') then
-            table.insert(preferred, template)
+            table.insert(greenSet, template)
+        else
+            table.insert(nonGreenSet, template)
         end
     end
-    if #preferred > 0 then
-        return preferred
+
+    if normalizedMap == 'green' then
+        if #greenSet > 0 then
+            return greenSet
+        end
+        -- Fallback keeps game playable if green-specific models are temporarily missing.
+        return templates
     end
 
-    -- Fallback keeps game playable if green-specific models are temporarily missing.
+    if #nonGreenSet > 0 then
+        return nonGreenSet
+    end
     return templates
 end
 
@@ -595,6 +601,7 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
 
     local record = self._activeEnemies[enemyId]
     local moveSpeed = tonumber(record and record.moveSpeed) or self:_computeEnemyMoveSpeed()
+    local pathHeightOffset = tonumber(self._config.ENEMY_SPAWN_HEIGHT_OFFSET_STUDS) or 0
     local resolveReason = 'UNKNOWN'
     local reachedWaypointCount = 0
 
@@ -616,7 +623,7 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
             break
         end
 
-        local targetPosition = waypoint.Position
+        local targetPosition = waypoint.Position + Vector3.new(0, pathHeightOffset, 0)
         local segmentStartDistance = (root.Position - targetPosition).Magnitude
         if segmentStartDistance < 0.001 then
             segmentStartDistance = 0.001
@@ -798,7 +805,8 @@ function EnemyService:spawnSingleEnemy()
     local preparedPartCount = prepareEnemyForPathing(enemyModel)
 
     enemyModel.Parent = map
-    enemyModel:PivotTo(chosenSpawn.CFrame)
+    local spawnHeightOffset = tonumber(self._config.ENEMY_SPAWN_HEIGHT_OFFSET_STUDS) or 0
+    enemyModel:PivotTo(chosenSpawn.CFrame + Vector3.new(0, spawnHeightOffset, 0))
     self:_debugPathingLog(('spawnCheck preparedParts=%d enemyModel=%s'):format(preparedPartCount, enemyModel.Name))
     self._spawnedThisRun += 1
     local spawnOrdinal = self._spawnedThisRun
