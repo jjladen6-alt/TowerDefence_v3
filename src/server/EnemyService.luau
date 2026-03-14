@@ -38,6 +38,27 @@ local function sortByNameDeterministic(instances: { Instance })
     end)
 end
 
+local function getPreferredTemplateSetForMap(mapName: string, templates: { Model }): { Model }
+    local normalizedMap = string.lower(mapName or '')
+    if normalizedMap ~= 'green' then
+        return templates
+    end
+
+    local preferred = {}
+    for _, template in ipairs(templates) do
+        local templateName = string.lower(template.Name)
+        if string.match(templateName, '^greenenemy%d+$') then
+            table.insert(preferred, template)
+        end
+    end
+    if #preferred > 0 then
+        return preferred
+    end
+
+    -- Fallback keeps game playable if green-specific models are temporarily missing.
+    return templates
+end
+
 local function collectWaypointParts(waypointsFolder: Instance): { BasePart }
     local waypointParts = {}
 
@@ -761,7 +782,10 @@ function EnemyService:spawnSingleEnemy()
         return false, 'NO_VALID_SPAWN_POINT'
     end
 
-    local enemyModel = templates[1]:Clone()
+    local candidateTemplates = getPreferredTemplateSetForMap(self._activeMapName, templates)
+    sortByNameDeterministic(candidateTemplates)
+    local selectedTemplate = candidateTemplates[self._rng:NextInteger(1, #candidateTemplates)]
+    local enemyModel = selectedTemplate:Clone()
     local root = getModelRoot(enemyModel)
     if not root then
         enemyModel:Destroy()

@@ -74,12 +74,12 @@
 					<token name="BackSurfaceInput">0</token>
 					<float name="BottomParamA">-0.5</float>
 					<float name="BottomParamB">0.5</float>
-					<token name="BottomSurface">4</token>
+					<token name="BottomSurface">0</token>
 					<token name="BottomSurfaceInput">0</token>
 					<CoordinateFrame name="CFrame">
 						<X>292</X>
 						<Y>1</Y>
-						<Z>-2</Z>
+						<Z>1</Z>
 						<R00>1</R00>
 						<R01>0</R01>
 						<R02>0</R02>
@@ -112,7 +112,7 @@
 					<bool name="Locked">false</bool>
 					<bool name="Massless">false</bool>
 					<token name="Material">256</token>
-					<string name="MaterialVariantSerialized"></string>
+					<string name="MaterialVariantSerialized">Universal</string>
 					<CoordinateFrame name="PivotOffset">
 						<X>0</X>
 						<Y>0</Y>
@@ -140,7 +140,7 @@
 					</Vector3>
 					<float name="TopParamA">-0.5</float>
 					<float name="TopParamB">0.5</float>
-					<token name="TopSurface">3</token>
+					<token name="TopSurface">0</token>
 					<token name="TopSurfaceInput">0</token>
 					<float name="Transparency">0.25</float>
 					<Vector3 name="Velocity">
@@ -160,7 +160,7 @@
 					<int64 name="SourceAssetId">-1</int64>
 					<BinaryString name="Tags"></BinaryString>
 				</Properties>
-				<Item class="Weld" referent="RBX2B781CABA5E140C69D229F3AC05143E7">
+				<Item class="Weld" referent="RBX7E2CC62226D64A56B76FAE117F639568">
 					<Properties>
 						<CoordinateFrame name="C0">
 							<X>0</X>
@@ -177,7 +177,7 @@
 							<R22>0</R22>
 						</CoordinateFrame>
 						<CoordinateFrame name="C1">
-							<X>2</X>
+							<X>-1</X>
 							<Y>0.5</Y>
 							<Z>92</Z>
 							<R00>0</R00>
@@ -214,12 +214,12 @@
 					<token name="BackSurfaceInput">0</token>
 					<float name="BottomParamA">-0.5</float>
 					<float name="BottomParamB">0.5</float>
-					<token name="BottomSurface">4</token>
+					<token name="BottomSurface">0</token>
 					<token name="BottomSurfaceInput">0</token>
 					<CoordinateFrame name="CFrame">
 						<X>292</X>
 						<Y>1</Y>
-						<Z>11</Z>
+						<Z>17</Z>
 						<R00>1</R00>
 						<R01>0</R01>
 						<R02>0</R02>
@@ -252,7 +252,7 @@
 					<bool name="Locked">false</bool>
 					<bool name="Massless">false</bool>
 					<token name="Material">256</token>
-					<string name="MaterialVariantSerialized"></string>
+					<string name="MaterialVariantSerialized">Universal</string>
 					<CoordinateFrame name="PivotOffset">
 						<X>0</X>
 						<Y>0</Y>
@@ -280,7 +280,7 @@
 					</Vector3>
 					<float name="TopParamA">-0.5</float>
 					<float name="TopParamB">0.5</float>
-					<token name="TopSurface">3</token>
+					<token name="TopSurface">0</token>
 					<token name="TopSurfaceInput">0</token>
 					<float name="Transparency">0.25</float>
 					<Vector3 name="Velocity">
@@ -300,7 +300,7 @@
 					<int64 name="SourceAssetId">-1</int64>
 					<BinaryString name="Tags"></BinaryString>
 				</Properties>
-				<Item class="Weld" referent="RBX8F0EA14889B04EACB5FBA8F7006AC977">
+				<Item class="Weld" referent="RBXE5211914E99447CBBE9FF0B8947A6AF4">
 					<Properties>
 						<CoordinateFrame name="C0">
 							<X>0</X>
@@ -317,7 +317,7 @@
 							<R22>0</R22>
 						</CoordinateFrame>
 						<CoordinateFrame name="C1">
-							<X>-11</X>
+							<X>-17</X>
 							<Y>0.5</Y>
 							<Z>92</Z>
 							<R00>0</R00>
@@ -354,12 +354,12 @@
 					<token name="BackSurfaceInput">0</token>
 					<float name="BottomParamA">-0.5</float>
 					<float name="BottomParamB">0.5</float>
-					<token name="BottomSurface">4</token>
+					<token name="BottomSurface">0</token>
 					<token name="BottomSurfaceInput">0</token>
 					<CoordinateFrame name="CFrame">
 						<X>292</X>
 						<Y>1</Y>
-						<Z>-16</Z>
+						<Z>-13</Z>
 						<R00>1</R00>
 						<R01>0</R01>
 						<R02>0</R02>
@@ -392,7 +392,7 @@
 					<bool name="Locked">false</bool>
 					<bool name="Massless">false</bool>
 					<token name="Material">256</token>
-					<string name="MaterialVariantSerialized"></string>
+					<string name="MaterialVariantSerialized">Universal</string>
 					<CoordinateFrame name="PivotOffset">
 						<X>0</X>
 						<Y>0</Y>
@@ -420,7 +420,7 @@
 					</Vector3>
 					<float name="TopParamA">-0.5</float>
 					<float name="TopParamB">0.5</float>
-					<token name="TopSurface">3</token>
+					<token name="TopSurface">0</token>
 					<token name="TopSurfaceInput">0</token>
 					<float name="Transparency">0.25</float>
 					<Vector3 name="Velocity">
@@ -440,7 +440,7 @@
 					<int64 name="SourceAssetId">-1</int64>
 					<BinaryString name="Tags"></BinaryString>
 				</Properties>
-				<Item class="Weld" referent="RBX2356F51DB3654F0FBE64013D1A32F2B1">
+				<Item class="Weld" referent="RBX206EB968129246B7840EB92DCF470E5C">
 					<Properties>
 						<CoordinateFrame name="C0">
 							<X>0</X>
@@ -457,7 +457,7 @@
 							<R22>0</R22>
 						</CoordinateFrame>
 						<CoordinateFrame name="C1">
-							<X>16</X>
+							<X>13</X>
 							<Y>0.5</Y>
 							<Z>92</Z>
 							<R00>0</R00>
@@ -504,12 +504,12 @@
 					<token name="BackSurfaceInput">0</token>
 					<float name="BottomParamA">-0.5</float>
 					<float name="BottomParamB">0.5</float>
-					<token name="BottomSurface">4</token>
+					<token name="BottomSurface">0</token>
 					<token name="BottomSurfaceInput">0</token>
 					<CoordinateFrame name="CFrame">
 						<X>104</X>
 						<Y>4</Y>
-						<Z>-3</Z>
+						<Z>0</Z>
 						<R00>1</R00>
 						<R01>0</R01>
 						<R02>0</R02>
@@ -542,7 +542,7 @@
 					<bool name="Locked">false</bool>
 					<bool name="Massless">false</bool>
 					<token name="Material">256</token>
-					<string name="MaterialVariantSerialized"></string>
+					<string name="MaterialVariantSerialized">Universal</string>
 					<CoordinateFrame name="PivotOffset">
 						<X>0</X>
 						<Y>0</Y>
@@ -570,7 +570,7 @@
 					</Vector3>
 					<float name="TopParamA">-0.5</float>
 					<float name="TopParamB">0.5</float>
-					<token name="TopSurface">3</token>
+					<token name="TopSurface">0</token>
 					<token name="TopSurfaceInput">0</token>
 					<float name="Transparency">0</float>
 					<Vector3 name="Velocity">
@@ -613,12 +613,12 @@
 					<token name="BackSurfaceInput">0</token>
 					<float name="BottomParamA">-0.5</float>
 					<float name="BottomParamB">0.5</float>
-					<token name="BottomSurface">4</token>
+					<token name="BottomSurface">0</token>
 					<token name="BottomSurfaceInput">0</token>
 					<CoordinateFrame name="CFrame">
 						<X>250</X>
 						<Y>1</Y>
-						<Z>-2</Z>
+						<Z>0</Z>
 						<R00>1</R00>
 						<R01>0</R01>
 						<R02>0</R02>
@@ -651,7 +651,7 @@
 					<bool name="Locked">false</bool>
 					<bool name="Massless">false</bool>
 					<token name="Material">256</token>
-					<string name="MaterialVariantSerialized"></string>
+					<string name="MaterialVariantSerialized">Universal</string>
 					<CoordinateFrame name="PivotOffset">
 						<X>0</X>
 						<Y>0</Y>
@@ -679,7 +679,7 @@
 					</Vector3>
 					<float name="TopParamA">-0.5</float>
 					<float name="TopParamB">0.5</float>
-					<token name="TopSurface">3</token>
+					<token name="TopSurface">0</token>
 					<token name="TopSurfaceInput">0</token>
 					<float name="Transparency">0.25</float>
 					<Vector3 name="Velocity">
@@ -699,7 +699,7 @@
 					<int64 name="SourceAssetId">-1</int64>
 					<BinaryString name="Tags"></BinaryString>
 				</Properties>
-				<Item class="Weld" referent="RBXE144EDAE20E54FE8A43B0FA48DA4AD80">
+				<Item class="Weld" referent="RBX3B180E74ABB0416086825419FC7536CE">
 					<Properties>
 						<CoordinateFrame name="C0">
 							<X>0</X>
@@ -716,7 +716,7 @@
 							<R22>0</R22>
 						</CoordinateFrame>
 						<CoordinateFrame name="C1">
-							<X>2</X>
+							<X>0</X>
 							<Y>0.5</Y>
 							<Z>50</Z>
 							<R00>0</R00>
@@ -753,12 +753,12 @@
 					<token name="BackSurfaceInput">0</token>
 					<float name="BottomParamA">-0.5</float>
 					<float name="BottomParamB">0.5</float>
-					<token name="BottomSurface">4</token>
+					<token name="BottomSurface">0</token>
 					<token name="BottomSurfaceInput">0</token>
 					<CoordinateFrame name="CFrame">
 						<X>122</X>
 						<Y>1</Y>
-						<Z>-3</Z>
+						<Z>0</Z>
 						<R00>1</R00>
 						<R01>0</R01>
 						<R02>0</R02>
@@ -791,7 +791,7 @@
 					<bool name="Locked">false</bool>
 					<bool name="Massless">false</bool>
 					<token name="Material">256</token>
-					<string name="MaterialVariantSerialized"></string>
+					<string name="MaterialVariantSerialized">Universal</string>
 					<CoordinateFrame name="PivotOffset">
 						<X>0</X>
 						<Y>0</Y>
@@ -819,7 +819,7 @@
 					</Vector3>
 					<float name="TopParamA">-0.5</float>
 					<float name="TopParamB">0.5</float>
-					<token name="TopSurface">3</token>
+					<token name="TopSurface">0</token>
 					<token name="TopSurfaceInput">0</token>
 					<float name="Transparency">0.25</float>
 					<Vector3 name="Velocity">
@@ -839,7 +839,7 @@
 					<int64 name="SourceAssetId">-1</int64>
 					<BinaryString name="Tags"></BinaryString>
 				</Properties>
-				<Item class="Weld" referent="RBX335592E9CCCF400CA92C4C0E1DE2FF7E">
+				<Item class="Weld" referent="RBX768E42E1378645C6A248C607C0561AFE">
 					<Properties>
 						<CoordinateFrame name="C0">
 							<X>0</X>
@@ -856,7 +856,7 @@
 							<R22>0</R22>
 						</CoordinateFrame>
 						<CoordinateFrame name="C1">
-							<X>3</X>
+							<X>0</X>
 							<Y>0.5</Y>
 							<Z>-78</Z>
 							<R00>0</R00>
@@ -904,7 +904,7 @@
 				<CoordinateFrame name="CFrame">
 					<X>150</X>
 					<Y>1.00000405</Y>
-					<Z>-3</Z>
+					<Z>1</Z>
 					<R00>1</R00>
 					<R01>0</R01>
 					<R02>0</R02>
@@ -937,7 +937,7 @@
 				<bool name="Locked">false</bool>
 				<bool name="Massless">false</bool>
 				<token name="Material">256</token>
-				<string name="MaterialVariantSerialized"></string>
+				<string name="MaterialVariantSerialized">Universal</string>
 				<CoordinateFrame name="PivotOffset">
 					<X>0</X>
 					<Y>0</Y>
@@ -1018,7 +1018,7 @@
 					<BinaryString name="Tags"></BinaryString>
 				</Properties>
 			</Item>
-			<Item class="Weld" referent="RBXA344E97DD8D44831A9BEB458D1A4131E">
+			<Item class="Weld" referent="RBX018480078A4B4597B4ACCCD6C86031CC">
 				<Properties>
 					<CoordinateFrame name="C0">
 						<X>0</X>
@@ -1035,7 +1035,7 @@
 						<R22>0</R22>
 					</CoordinateFrame>
 					<CoordinateFrame name="C1">
-						<X>3</X>
+						<X>-1</X>
 						<Y>0.500004053</Y>
 						<Z>-50</Z>
 						<R00>0</R00>
@@ -1072,7 +1072,7 @@
 				<token name="BackSurfaceInput">0</token>
 				<float name="BottomParamA">-0.5</float>
 				<float name="BottomParamB">0.5</float>
-				<token name="BottomSurface">4</token>
+				<token name="BottomSurface">0</token>
 				<token name="BottomSurfaceInput">0</token>
 				<CoordinateFrame name="CFrame">
 					<X>200</X>
@@ -1110,7 +1110,7 @@
 				<bool name="Locked">false</bool>
 				<bool name="Massless">false</bool>
 				<token name="Material">256</token>
-				<string name="MaterialVariantSerialized"></string>
+				<string name="MaterialVariantSerialized">Universal</string>
 				<CoordinateFrame name="PivotOffset">
 					<X>0</X>
 					<Y>0</Y>
@@ -1138,7 +1138,7 @@
 				</Vector3>
 				<float name="TopParamA">-0.5</float>
 				<float name="TopParamB">0.5</float>
-				<token name="TopSurface">5</token>
+				<token name="TopSurface">0</token>
 				<token name="TopSurfaceInput">0</token>
 				<float name="Transparency">0</float>
 				<Vector3 name="Velocity">
