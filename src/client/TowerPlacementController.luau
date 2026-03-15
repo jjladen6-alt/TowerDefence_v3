@@ -113,6 +113,8 @@ function TowerPlacementController.new(net)
         _visualTelemetryLastAt = {},
         _visualTelemetryLastPayloadByMarker = {},
         _selectedPanelLayoutSignature = '',
+        _touchPreviewScreenPosition = nil,
+        _selectionHighlight = nil,
     }, TowerPlacementController)
 end
 
@@ -240,7 +242,7 @@ function TowerPlacementController:_resolveRemotesWithRetry(): boolean
     return false
 end
 
-function TowerPlacementController:_buildPlacementRaycastParams(): RaycastParams
+function TowerPlacementController:_buildPlacementRaycastParams(excludeTowers: boolean?): RaycastParams
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     local ignoreList = {}
@@ -251,7 +253,7 @@ function TowerPlacementController:_buildPlacementRaycastParams(): RaycastParams
     end
     local map = self:_getActiveMapFolder()
     local towersFolder = map and map:FindFirstChild('Towers')
-    if towersFolder then
+    if excludeTowers ~= false and towersFolder then
         table.insert(ignoreList, towersFolder)
     end
     if self._previewFolder and self._previewFolder.Parent then
@@ -261,13 +263,16 @@ function TowerPlacementController:_buildPlacementRaycastParams(): RaycastParams
     return params
 end
 
-function TowerPlacementController:_getRaycastResult(screenPosition: Vector2): RaycastResult?
+function TowerPlacementController:_getRaycastResult(
+    screenPosition: Vector2,
+    excludeTowers: boolean?
+): RaycastResult?
     local camera = workspace.CurrentCamera
     if not camera then
         return nil
     end
     local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
-    return workspace:Raycast(ray.Origin, ray.Direction * 1000, self:_buildPlacementRaycastParams())
+    return workspace:Raycast(ray.Origin, ray.Direction * 1000, self:_buildPlacementRaycastParams(excludeTowers))
 end
 
 function TowerPlacementController:_resolveTowerIdFromHit(hitInstance: Instance?): string?
@@ -608,6 +613,49 @@ function TowerPlacementController:_findTowerModelById(towerId: string): Model?
     return nil
 end
 
+function TowerPlacementController:_ensureSelectionHighlight(): Highlight
+    local highlight = self._selectionHighlight
+    if highlight and highlight.Parent then
+        return highlight
+    end
+
+    highlight = Instance.new('Highlight')
+    highlight.Name = 'SelectedTowerHighlight'
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.FillColor = Color3.fromRGB(255, 235, 70)
+    highlight.FillTransparency = 0.82
+    highlight.OutlineColor = Color3.fromRGB(255, 220, 35)
+    highlight.OutlineTransparency = 0.05
+    highlight.Enabled = false
+    highlight.Parent = workspace
+    self._selectionHighlight = highlight
+    return highlight
+end
+
+function TowerPlacementController:_updateSelectionHighlight()
+    local highlight = self:_ensureSelectionHighlight()
+    local shouldShow = self._latestPhase == 'Wave' and self._selectedTowerId ~= nil
+    if not shouldShow then
+        highlight.Enabled = false
+        highlight.Adornee = nil
+        return
+    end
+
+    local selectedModel = self._selectedTowerModel
+    if not selectedModel or not selectedModel.Parent then
+        selectedModel = self:_findTowerModelById(tostring(self._selectedTowerId))
+        self._selectedTowerModel = selectedModel
+    end
+
+    if selectedModel and selectedModel.Parent then
+        highlight.Adornee = selectedModel
+        highlight.Enabled = true
+    else
+        highlight.Enabled = false
+        highlight.Adornee = nil
+    end
+end
+
 function TowerPlacementController:_getTowerRole(towerType: string): string
     if towerType == 'Rapid' then
         return 'DPS'
@@ -651,6 +699,81 @@ function TowerPlacementController:_computeTowerTierStatsPreview(
         attackInterval = 0.1
     end
     return damage, range, attackInterval
+end
+
+function TowerPlacementController:_getTowerModelRootPosition(towerModel: Model): Vector3?
+    if not towerModel or not towerModel.Parent then
+        return nil
+    end
+    local primary = towerModel.PrimaryPart
+    if primary then
+        return primary.Position
+    end
+    local candidate = towerModel:FindFirstChild('Body')
+    if candidate and candidate:IsA('BasePart') then
+        return candidate.Position
+    end
+    for _, descendant in ipairs(towerModel:GetDescendants()) do
+        if descendant:IsA('BasePart') then
+            return descendant.Position
+        end
+    end
+    return nil
+end
+
+function TowerPlacementController:_computeSupportMultiplierForSelectedTower(selectedModel: Model): number
+    if not selectedModel or not selectedModel.Parent then
+        return 1
+    end
+
+    local selectedTowerType = tostring(selectedModel:GetAttribute('TowerType') or '')
+    if selectedTowerType == 'Support' then
+        return 1
+    end
+
+    local selectedPosition = self:_getTowerModelRootPosition(selectedModel)
+    if not selectedPosition then
+        return 1
+    end
+
+    local minAggregateMultiplier = tonumber(GameConfig.SUPPORT_TOWER_MIN_ATTACK_INTERVAL_MULTIPLIER) or 0.75
+    minAggregateMultiplier = math.clamp(minAggregateMultiplier, 0.1, 1)
+    local auraRadiusByTier = GameConfig.SUPPORT_TOWER_AURA_RADIUS_BY_TIER
+    local intervalMultiplierByTier = GameConfig.SUPPORT_TOWER_ATTACK_INTERVAL_MULTIPLIER_BY_TIER
+    local towersFolder = self:_getActiveMapFolder() and self:_getActiveMapFolder():FindFirstChild('Towers')
+    if not towersFolder then
+        return 1
+    end
+
+    local selectedTowerId = tostring(selectedModel:GetAttribute('TowerId') or '')
+    local aggregateMultiplier = 1
+    for _, candidate in ipairs(towersFolder:GetChildren()) do
+        if candidate:IsA('Model') and candidate ~= selectedModel then
+            local towerType = tostring(candidate:GetAttribute('TowerType') or '')
+            if towerType == 'Support' then
+                local supportPosition = self:_getTowerModelRootPosition(candidate)
+                if supportPosition then
+                    local tier = math.max(0, math.floor(tonumber(candidate:GetAttribute('UpgradeTier')) or 0))
+                    local auraRadius = 20
+                    if type(auraRadiusByTier) == 'table' then
+                        auraRadius = tonumber(auraRadiusByTier[tier]) or auraRadius
+                    end
+                    auraRadius = math.max(1, auraRadius)
+                    local supportMultiplier = 0.94
+                    if type(intervalMultiplierByTier) == 'table' then
+                        supportMultiplier = tonumber(intervalMultiplierByTier[tier]) or supportMultiplier
+                    end
+                    supportMultiplier = math.clamp(supportMultiplier, 0.1, 1)
+                    local supportTowerId = tostring(candidate:GetAttribute('TowerId') or '')
+                    if supportTowerId ~= selectedTowerId and (selectedPosition - supportPosition).Magnitude <= auraRadius then
+                        aggregateMultiplier *= supportMultiplier
+                    end
+                end
+            end
+        end
+    end
+
+    return math.max(minAggregateMultiplier, aggregateMultiplier)
 end
 
 function TowerPlacementController:_computeUpgradeCostPreview(
@@ -763,9 +886,7 @@ function TowerPlacementController:_updateSelectionActionUi()
         self._upgradeButton.Visible = hasSelection
         self._upgradeButton.Active = hasSelection and upgradeLockedReason == nil
         self._upgradeButton.AutoButtonColor = self._upgradeButton.Active
-        self._upgradeButton.Text = if upgradeLockedReason == nil
-            then 'Upgrade'
-            else ('Upgrade [' .. upgradeLockedReason .. ']')
+        self._upgradeButton.Text = 'Upgrade'
     end
     if self._sellButton and self._sellButton.Parent then
         self._sellButton.Visible = hasSelection
@@ -825,6 +946,12 @@ function TowerPlacementController:_updateSelectedTowerPanel()
     local damage = tonumber(model:GetAttribute('Damage')) or 0
     local range = tonumber(model:GetAttribute('Range')) or 0
     local attackInterval = tonumber(model:GetAttribute('AttackInterval')) or 0
+    local supportMultiplier = self:_computeSupportMultiplierForSelectedTower(model)
+    if supportMultiplier < 1 then
+        attackInterval = math.max(0.05, attackInterval * supportMultiplier)
+        -- Display effective damage feedback when support speed buffs are active.
+        damage = damage / supportMultiplier
+    end
     local costPaid = tonumber(model:GetAttribute('CostPaid')) or 0
     if costPaid <= 0 then
         local costs = GameConfig.TOWER_COSTS
@@ -832,15 +959,10 @@ function TowerPlacementController:_updateSelectedTowerPanel()
             costPaid = tonumber(costs[towerType]) or 0
         end
     end
-    local refundRatio = tonumber(GameConfig.TOWER_SELL_REFUND_RATIO) or 0.7
-    local refundPreview = math.max(0, math.floor((costPaid * refundRatio) + 0.5))
     local maxTier = tonumber(GameConfig.TOWER_MAX_UPGRADE_TIER) or 3
-    local lastUpgradeCost = tonumber(model:GetAttribute('LastUpgradeCost')) or 0
     local upgradeLine = ''
     if tier >= maxTier then
         upgradeLine = 'Upgrade: MAX'
-    elseif lastUpgradeCost > 0 then
-        upgradeLine = ('Upgrade: $%d'):format(lastUpgradeCost)
     else
         local baseCost = 0
         local costs = GameConfig.TOWER_COSTS
@@ -849,15 +971,10 @@ function TowerPlacementController:_updateSelectedTowerPanel()
         end
         local multiplier = tonumber(GameConfig.TOWER_UPGRADE_COST_MULTIPLIER) or 1.5
         local nextCost = math.max(1, math.floor((baseCost * multiplier ^ (tier + 1)) + 0.5))
-        upgradeLine = ('Upgrade: ~$%d'):format(nextCost)
+        upgradeLine = ('Upgrade: %d'):format(nextCost)
     end
 
-    labels.title.Text = ('Selected Tower (%s)'):format(tostring(self._selectedTowerId))
     labels.role.Text = ('Role: %s'):format(self:_getTowerRole(towerType))
-    labels.typeTier.Text = ('Type: %s | Tier: %d'):format(towerType, tier)
-    if labels.portrait then
-        labels.portrait.Text = ('Portrait: %s'):format(towerType)
-    end
     if towerType == 'Support' then
         local auraByTier = GameConfig.SUPPORT_TOWER_AURA_RADIUS_BY_TIER
         local auraRadius = 0
@@ -869,44 +986,11 @@ function TowerPlacementController:_updateSelectedTowerPanel()
         if type(buffByTier) == 'table' then
             buffMultiplier = tonumber(buffByTier[tier]) or 1
         end
-        labels.stats.Text = ('AURA %.1f | BUFF x%.2f | INT %.2fs'):format(auraRadius, buffMultiplier, attackInterval)
+        labels.stats.Text = ('AURA %.1f | BUFF x%.2f | SPD %.2fs'):format(auraRadius, buffMultiplier, attackInterval)
     else
-        labels.stats.Text = ('DMG %.0f | RNG %.1f | INT %.2fs'):format(damage, range, attackInterval)
-    end
-    if labels.targetMode then
-        labels.targetMode.Text = ('Target mode: %s'):format(self._selectedTargetMode)
+        labels.stats.Text = ('DMG %.0f | RNG %.1f | SPD %.2fs'):format(damage, range, attackInterval)
     end
     labels.upgrade.Text = upgradeLine
-    labels.sell.Text = ('Sell refund: ~$%d'):format(refundPreview)
-    if labels.delta then
-        if tier >= maxTier then
-            labels.delta.Text = 'Next upgrade delta: MAX'
-        else
-            local nextTier = tier + 1
-            local nextDamage, nextRange, nextAttackInterval = self:_computeTowerTierStatsPreview(towerType, nextTier)
-            local previewUpgradeCost = self:_computeUpgradeCostPreview(model, towerType, nextTier)
-            if towerType == 'Support' then
-                local auraByTier = GameConfig.SUPPORT_TOWER_AURA_RADIUS_BY_TIER
-                local currentAura = type(auraByTier) == 'table' and (tonumber(auraByTier[tier]) or 0) or 0
-                local nextAura = type(auraByTier) == 'table' and (tonumber(auraByTier[nextTier]) or currentAura)
-                    or currentAura
-                labels.delta.Text = ('Next: Aura +%.1f | Int %.2f->%.2f | Cost $%d'):format(
-                    nextAura - currentAura,
-                    attackInterval,
-                    nextAttackInterval,
-                    previewUpgradeCost
-                )
-            else
-                labels.delta.Text = ('Next: Dmg +%.0f | Rng +%.1f | Int %.2f->%.2f | Cost $%d'):format(
-                    nextDamage - damage,
-                    nextRange - range,
-                    attackInterval,
-                    nextAttackInterval,
-                    previewUpgradeCost
-                )
-            end
-        end
-    end
     self:_publishSelectedPanelFootprint()
 end
 
@@ -1082,7 +1166,8 @@ function TowerPlacementController:_ensurePlacementPreview()
     rangePart.Transparency = 0.72
     rangePart.Material = Enum.Material.Neon
     rangePart.Shape = Enum.PartType.Cylinder
-    rangePart.Size = Vector3.new(6, 0.16, 6)
+    -- Cylinder axis is X for PartType.Cylinder; keep X thin and rotate so it renders as a flat range circle.
+    rangePart.Size = Vector3.new(0.12, 6, 6)
     rangePart.CastShadow = false
     rangePart.Parent = folder
     self._previewRange = rangePart
@@ -1146,8 +1231,11 @@ function TowerPlacementController:_updatePlacementPreview()
         return
     end
 
-    local mouseLocation = UserInputService:GetMouseLocation()
-    local raycastResult = self:_getRaycastResult(mouseLocation)
+    local pointerScreenPosition = self._touchPreviewScreenPosition
+    if not pointerScreenPosition then
+        pointerScreenPosition = UserInputService:GetMouseLocation()
+    end
+    local raycastResult = self:_getRaycastResult(pointerScreenPosition, true)
     local targetPosition = raycastResult and raycastResult.Position or nil
     local snappedPosition = nil
     local localRejectReason = nil
@@ -1160,19 +1248,19 @@ function TowerPlacementController:_updatePlacementPreview()
         self._previewValid = false
         if not targetPosition then
             self._previewReason = 'AIM_AT_WORLD'
-            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], mouseLocation)
+            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], pointerScreenPosition)
         elseif localRejectReason == 'BLOCKED_SURFACE' then
             self._previewReason = 'BLOCKED_SURFACE'
-            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], mouseLocation)
+            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], pointerScreenPosition)
         elseif localRejectReason == 'INVALID_SURFACE' then
             self._previewReason = 'INVALID_SURFACE'
-            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], mouseLocation)
+            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], pointerScreenPosition)
         elseif localRejectReason == 'OUT_OF_RANGE' then
             self._previewReason = 'OUT_OF_RANGE'
-            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], mouseLocation)
+            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], pointerScreenPosition)
         else
             self._previewReason = 'OUT_OF_RANGE_OR_INVALID_SURFACE'
-            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], mouseLocation)
+            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], pointerScreenPosition)
         end
         local nowTime = os.clock()
         if
@@ -1180,7 +1268,7 @@ function TowerPlacementController:_updatePlacementPreview()
             and (nowTime - self._lastPlacementFailureAt) <= 2.0
         then
             self._previewReason = 'CELL_OCCUPIED'
-            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], mouseLocation)
+            self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], pointerScreenPosition)
         end
         if self._previewReasonTelemetryLast ~= self._previewReason then
             self._previewReasonTelemetryLast = self._previewReason
@@ -1207,7 +1295,7 @@ function TowerPlacementController:_updatePlacementPreview()
         })
     end
     self:_setPlacementPreviewVisible(true)
-    self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], mouseLocation)
+    self:_setPreviewHint(PREVIEW_REASON_TO_HINT[self._previewReason], pointerScreenPosition)
 
     local isValid = self._previewValid
     local visualConfig = self:_getPreviewVisualConfig()
@@ -1241,8 +1329,9 @@ function TowerPlacementController:_updatePlacementPreview()
 
     local range = self:_getSelectedTowerRange()
     local diameter = math.max(2, range * 2)
-    self._previewRange.Size = Vector3.new(diameter, 0.16, diameter)
-    self._previewRange.CFrame = CFrame.new(snappedPosition + Vector3.new(0, 0.06, 0))
+    self._previewRange.Size = Vector3.new(0.12, diameter, diameter)
+    self._previewRange.CFrame = CFrame.new(snappedPosition + Vector3.new(0, 0.04, 0))
+        * CFrame.Angles(0, 0, math.rad(90))
     self._previewFootprint.Size = Vector3.new(rotatedFootprintX, 0.14, rotatedFootprintZ)
     self._previewFootprint.CFrame = CFrame.new(snappedPosition + Vector3.new(0, 0.07, 0))
         * CFrame.Angles(0, rotationRad, 0)
@@ -1265,23 +1354,30 @@ end
 function TowerPlacementController:_attemptPlaceFromPreview()
     if self._previewValid and self._previewPosition then
         self:_firePlace(self._previewPosition)
+        -- Single-use arm: require re-arming after each valid placement attempt.
+        self:_setPlacementArmed(false)
     else
         self:_notify('Placement blocked: aim at a valid in-range build surface.')
     end
 end
 
 function TowerPlacementController:_handlePointer(screenPosition: Vector2)
-    local result = self:_getRaycastResult(screenPosition)
+    local result = self:_getRaycastResult(screenPosition, false)
     if not result then
         return
     end
 
+    local towerId = self:_resolveTowerIdFromHit(result.Instance)
     if self._placingArmed then
-        self:_attemptPlaceFromPreview()
-        return
+        if towerId then
+            -- Allow quick tower selection/retargeting even while placement mode is armed.
+            self:_setPlacementArmed(false)
+        else
+            self:_attemptPlaceFromPreview()
+            return
+        end
     end
 
-    local towerId = self:_resolveTowerIdFromHit(result.Instance)
     if towerId then
         self._selectedTowerId = towerId
         self._selectedTowerModel = self:_findTowerModelById(towerId)
@@ -1328,17 +1424,12 @@ function TowerPlacementController:_createHud()
     screenGui.Parent = playerGui
     self._screenGui = screenGui
     local touchPreferred = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-    local topInset, bottomInset = getSafeInsets()
+    local _, bottomInset = getSafeInsets()
     local safePadding = math.max(0, math.floor(tonumber(GameConfig.UI_SAFE_AREA_PADDING) or 8))
-    local safeTopY = math.floor(topInset.Y) + safePadding
     local safeBottomY = math.floor(bottomInset.Y) + safePadding
+    local safeRightX = math.floor(bottomInset.X) + safePadding
     local camera = workspace.CurrentCamera
     local viewportHeight = camera and camera.ViewportSize.Y or 720
-    local touchButtonWidth = math.max(150, math.floor(tonumber(GameConfig.UI_TOUCH_MIN_BUTTON_WIDTH) or 150))
-    local touchButtonHeight = math.max(50, math.floor(tonumber(GameConfig.UI_TOUCH_MIN_BUTTON_HEIGHT) or 48))
-    local actionRightX = touchPreferred and (touchButtonWidth + 12) or 122
-    local actionBaseBottomY = (touchPreferred and 12 or 8) + safeBottomY
-    local mobileInventoryScale = 0.78
     local inventoryHudLayout = type(GameConfig.INVENTORY_HUD_LAYOUT) == 'table' and GameConfig.INVENTORY_HUD_LAYOUT
         or {}
     local inventoryHudScale = tonumber(inventoryHudLayout.scale) or 0.8
@@ -1346,177 +1437,121 @@ function TowerPlacementController:_createHud()
     local inventoryDropViewportPct = tonumber(inventoryHudLayout.dropViewportPct) or 0.05
     inventoryDropViewportPct = math.clamp(inventoryDropViewportPct, 0, 0.2)
     local inventoryLowerPixels = math.floor((viewportHeight * inventoryDropViewportPct) + 0.5)
+    local inventoryDockLayout = type(GameConfig.INVENTORY_DOCK_LAYOUT) == 'table' and GameConfig.INVENTORY_DOCK_LAYOUT or {}
+    local availableTowerTypes = self:_getAvailableTowerTypes()
+    local towerCount = math.max(1, #availableTowerTypes)
 
-    local function createActionButton(name: string, text: string, order: number): TextButton
-        local button = Instance.new('TextButton')
-        button.Name = name
-        button.Text = text
-        HUDTheme.applyText(button, {
-            textXAlignment = Enum.TextXAlignment.Center,
-            textSize = touchPreferred and 13 or 11,
-        })
-        button.Size = touchPreferred and UDim2.fromOffset(touchButtonWidth, touchButtonHeight)
-            or UDim2.fromOffset(132, 42)
-        button.Position = UDim2.new(
-            0,
-            12,
-            1,
-            -(
-                    if touchPreferred
-                        then ((order * (touchButtonHeight + 6)) + actionBaseBottomY)
-                        else ((order * 48) + actionBaseBottomY)
-                )
-        )
-        button.AutoButtonColor = false
-        button.Parent = screenGui
-        HUDTheme.applySurface(button, {
-            useGradient = false,
-        })
-        return button
+    local dockPaddingX = math.max(4, math.floor((tonumber(inventoryDockLayout.paddingX) or 8) * inventoryHudScale))
+    local dockPaddingY = math.max(4, math.floor((tonumber(inventoryDockLayout.paddingY) or 7) * inventoryHudScale))
+    local desktopCardWidth = math.max(70, math.floor((tonumber(inventoryDockLayout.desktopCardWidth) or 92) * inventoryHudScale))
+    local touchCardWidth = math.max(62, math.floor((tonumber(inventoryDockLayout.touchCardWidth) or 88) * inventoryHudScale))
+    local desktopCardHeight = math.max(28, math.floor((tonumber(inventoryDockLayout.desktopCardHeight) or 34) * inventoryHudScale))
+    local touchCardHeight = math.max(30, math.floor((tonumber(inventoryDockLayout.touchCardHeight) or 36) * inventoryHudScale))
+    local desktopSpacing = math.max(4, math.floor((tonumber(inventoryDockLayout.desktopSpacing) or 8) * inventoryHudScale))
+    local touchSpacing = math.max(4, math.floor((tonumber(inventoryDockLayout.touchSpacing) or 8) * inventoryHudScale))
+
+    local cardWidth = touchPreferred and touchCardWidth or desktopCardWidth
+    local cardHeight = touchPreferred and touchCardHeight or desktopCardHeight
+    local cardSpacing = touchPreferred and touchSpacing or desktopSpacing
+    local dockWidth = (dockPaddingX * 2) + (towerCount * cardWidth) + ((towerCount - 1) * cardSpacing)
+    local dockHeight = (dockPaddingY * 2) + cardHeight
+
+    local viewportWidth = camera and camera.ViewportSize.X or 1280
+    local maxDockWidth = math.max(260, math.floor(viewportWidth * 0.94))
+    if dockWidth > maxDockWidth then
+        local scalableWidth = dockWidth - (dockPaddingX * 2)
+        local scaleRatio = if scalableWidth > 0 then (maxDockWidth - (dockPaddingX * 2)) / scalableWidth else 1
+        scaleRatio = math.clamp(scaleRatio, 0.7, 1)
+        cardWidth = math.max(78, math.floor((cardWidth * scaleRatio) + 0.5))
+        cardSpacing = math.max(5, math.floor((cardSpacing * scaleRatio) + 0.5))
+        dockWidth = (dockPaddingX * 2) + (towerCount * cardWidth) + ((towerCount - 1) * cardSpacing)
     end
 
     local function createInventoryCard(parent: GuiObject, index: number, towerType: string): TextButton
         local towerButton = Instance.new('TextButton')
         towerButton.Name = ('TowerType_%s'):format(towerType)
-        local scaledMobileInventory = mobileInventoryScale * inventoryHudScale
-        local cardWidth = touchPreferred and math.max(64, math.floor((110 * scaledMobileInventory) + 0.5))
-            or math.max(80, math.floor((102 * inventoryHudScale) + 0.5))
-        local cardHeight = touchPreferred and math.max(34, math.floor((52 * scaledMobileInventory) + 0.5))
-            or math.max(36, math.floor((48 * inventoryHudScale) + 0.5))
-        local spacing = touchPreferred and math.max(68, math.floor((114 * scaledMobileInventory) + 0.5))
-            or math.max(84, math.floor((106 * inventoryHudScale) + 0.5))
         towerButton.Size = UDim2.fromOffset(cardWidth, cardHeight)
-        towerButton.Position = UDim2.fromOffset(6 + ((index - 1) * spacing), math.floor((22 * inventoryHudScale) + 0.5))
+        towerButton.Position = UDim2.fromOffset(
+            dockPaddingX + ((index - 1) * (cardWidth + cardSpacing)),
+            dockPaddingY
+        )
+        towerButton.ClipsDescendants = true
         towerButton.TextWrapped = false
+        towerButton.TextScaled = true
+        towerButton.TextTruncate = Enum.TextTruncate.AtEnd
         towerButton.TextYAlignment = Enum.TextYAlignment.Center
         towerButton.AutoButtonColor = false
         HUDTheme.applyText(towerButton, {
             textXAlignment = Enum.TextXAlignment.Center,
-            textSize = touchPreferred and 12 or 11,
+            textSize = touchPreferred and 11 or 10,
         })
         towerButton.Parent = parent
-        towerButton.Text = ('%d %s'):format(index, towerType)
+        towerButton.Text = towerType
         HUDTheme.applyInventoryButtonState(towerButton, false)
         return towerButton
     end
 
-    local upgradeButton = createActionButton('UpgradeButton', 'Upgrade', 3)
-    upgradeButton.Size = touchPreferred and UDim2.fromOffset(touchButtonWidth - 18, touchButtonHeight)
-        or UDim2.fromOffset(114, 36)
-    upgradeButton.Position = touchPreferred
-            and UDim2.new(1, -actionRightX, 1, -(actionBaseBottomY + (touchButtonHeight * 3) + 24))
-        or UDim2.new(1, -122, 1, -(actionBaseBottomY + 120))
-    local sellButton = createActionButton('SellButton', 'Sell', 2)
-    sellButton.Size = touchPreferred and UDim2.fromOffset(touchButtonWidth - 18, touchButtonHeight)
-        or UDim2.fromOffset(114, 36)
-    sellButton.Position = touchPreferred
-            and UDim2.new(1, -actionRightX, 1, -(actionBaseBottomY + (touchButtonHeight * 2) + 16))
-        or UDim2.new(1, -122, 1, -(actionBaseBottomY + 80))
-    local targetModeButton = createActionButton('TargetModeButton', 'Target: First', 1)
-    targetModeButton.Size = touchPreferred and UDim2.fromOffset(touchButtonWidth - 18, touchButtonHeight)
-        or UDim2.fromOffset(114, 36)
-    targetModeButton.Position = touchPreferred
-            and UDim2.new(1, -actionRightX, 1, -(actionBaseBottomY + (touchButtonHeight * 4) + 32))
-        or UDim2.new(1, -122, 1, -(actionBaseBottomY + 160))
-    targetModeButton.Visible = false
-    self._targetModeButton = targetModeButton
-    local placeActionButton = Instance.new('TextButton')
-    placeActionButton.Name = 'PlaceActionButton'
-    placeActionButton.Size = touchPreferred and UDim2.fromOffset(120, touchButtonHeight) or UDim2.fromOffset(104, 34)
-    placeActionButton.Position = touchPreferred and UDim2.new(0, 12, 1, -(safeBottomY + 122))
-        or UDim2.new(0.5, -146, 1, -(safeBottomY + 116))
-    placeActionButton.Text = 'Place (Enter)'
-    placeActionButton.Visible = false
-    placeActionButton.Parent = screenGui
-    HUDTheme.applySurface(placeActionButton, {
-        useGradient = false,
-        cornerRadius = 10,
-    })
-    HUDTheme.applyText(placeActionButton, {
-        textXAlignment = Enum.TextXAlignment.Center,
-        textSize = touchPreferred and 12 or 11,
-    })
-    self._placeButton = placeActionButton
-
-    local rotateActionButton = Instance.new('TextButton')
-    rotateActionButton.Name = 'RotateActionButton'
-    rotateActionButton.Size = touchPreferred and UDim2.fromOffset(120, touchButtonHeight) or UDim2.fromOffset(104, 34)
-    rotateActionButton.Position = touchPreferred and UDim2.new(0, 138, 1, -(safeBottomY + 122))
-        or UDim2.new(0.5, -36, 1, -(safeBottomY + 116))
-    rotateActionButton.Text = 'Rotate (R)'
-    rotateActionButton.Visible = false
-    rotateActionButton.Parent = screenGui
-    HUDTheme.applySurface(rotateActionButton, {
-        useGradient = false,
-        cornerRadius = 10,
-    })
-    HUDTheme.applyText(rotateActionButton, {
-        textXAlignment = Enum.TextXAlignment.Center,
-        textSize = touchPreferred and 12 or 11,
-    })
-    self._rotateButton = rotateActionButton
-
-    local cancelActionButton = Instance.new('TextButton')
-    cancelActionButton.Name = 'CancelActionButton'
-    cancelActionButton.Size = touchPreferred and UDim2.fromOffset(120, touchButtonHeight) or UDim2.fromOffset(104, 34)
-    cancelActionButton.Position = touchPreferred and UDim2.new(0, 264, 1, -(safeBottomY + 122))
-        or UDim2.new(0.5, 74, 1, -(safeBottomY + 116))
-    cancelActionButton.Text = 'Cancel (C)'
-    cancelActionButton.Visible = false
-    cancelActionButton.Parent = screenGui
-    HUDTheme.applySurface(cancelActionButton, {
-        useGradient = false,
-        cornerRadius = 10,
-    })
-    HUDTheme.applyText(cancelActionButton, {
-        textXAlignment = Enum.TextXAlignment.Center,
-        textSize = touchPreferred and 12 or 11,
-    })
-    self._cancelButton = cancelActionButton
-
+    self._placeButton = nil
+    self._rotateButton = nil
+    self._cancelButton = nil
+    self._upgradeButton = nil
+    self._sellButton = nil
+    self._targetModeButton = nil
+    self._targetModeFrame = nil
     self._placementStatusLabel = nil
     local towerLoadoutFrame = Instance.new('Frame')
     towerLoadoutFrame.Name = 'TowerLoadoutFrame'
-    local mobileInventoryWidth = math.max(224, math.floor((462 * mobileInventoryScale * inventoryHudScale) + 0.5))
-    local mobileInventoryHeight = math.max(54, math.floor((84 * mobileInventoryScale * inventoryHudScale) + 0.5))
-    local desktopInventoryWidth = math.max(340, math.floor((430 * inventoryHudScale) + 0.5))
-    local desktopInventoryHeight = math.max(60, math.floor((76 * inventoryHudScale) + 0.5))
-    local touchInventoryOffset = math.max(20, 58 - inventoryLowerPixels)
-    local desktopInventoryOffset = math.max(20, 60 - inventoryLowerPixels)
-    towerLoadoutFrame.Size = touchPreferred and UDim2.fromOffset(mobileInventoryWidth, mobileInventoryHeight)
-        or UDim2.fromOffset(desktopInventoryWidth, desktopInventoryHeight)
+    local touchInventoryOffset = math.max(16, 42 - inventoryLowerPixels)
+    local desktopInventoryOffset = math.max(16, 40 - inventoryLowerPixels)
+    towerLoadoutFrame.Size = UDim2.fromOffset(dockWidth, dockHeight)
     towerLoadoutFrame.Position = touchPreferred
-            and UDim2.new(0.5, -math.floor(mobileInventoryWidth / 2), 1, -(safeBottomY + touchInventoryOffset))
-        or UDim2.new(0.5, -math.floor(desktopInventoryWidth / 2), 1, -(safeBottomY + desktopInventoryOffset))
+            and UDim2.new(0.5, -math.floor(dockWidth / 2), 1, -(safeBottomY + touchInventoryOffset))
+        or UDim2.new(0.5, -math.floor(dockWidth / 2), 1, -(safeBottomY + desktopInventoryOffset))
     towerLoadoutFrame.Parent = screenGui
     self._towerLoadoutFrame = towerLoadoutFrame
-    HUDTheme.applySurface(towerLoadoutFrame)
-
-    local towerTitle = Instance.new('TextLabel')
-    towerTitle.Name = 'TowerSelectionTitle'
-    towerTitle.Size = UDim2.new(0.55, -8, 0, 18)
-    towerTitle.Position = UDim2.fromOffset(6, 2)
-    towerTitle.BackgroundTransparency = 1
-    HUDTheme.applyText(towerTitle, {
-        textXAlignment = Enum.TextXAlignment.Left,
+    HUDTheme.applySurface(towerLoadoutFrame, {
+        cornerRadius = 20,
+        strokeThickness = 1.5,
+        strokeTransparency = 0.28,
+        backgroundTransparency = 0.14,
+        useGradient = false,
     })
-    towerTitle.Text = 'Inventory'
-    towerTitle.Parent = towerLoadoutFrame
 
-    local phaseStatusLabel = Instance.new('TextLabel')
-    phaseStatusLabel.Name = 'PhaseStatus'
-    phaseStatusLabel.Size = UDim2.new(0.45, -8, 0, 18)
-    phaseStatusLabel.Position = UDim2.new(0.55, 0, 0, 2)
-    phaseStatusLabel.BackgroundTransparency = 1
-    phaseStatusLabel.TextXAlignment = Enum.TextXAlignment.Right
-    phaseStatusLabel.Parent = towerLoadoutFrame
-    HUDTheme.applyText(phaseStatusLabel, {
-        textXAlignment = Enum.TextXAlignment.Right,
-        textSize = touchPreferred and 11 or 10,
+    local placeButton = Instance.new('TextButton')
+    placeButton.Name = 'PlaceButton'
+    local placeButtonWidth = touchPreferred and 92 or 86
+    local placeButtonHeight = touchPreferred and 30 or 28
+    local placeButtonGap = math.clamp(math.floor((viewportHeight * 0.0125) + 0.5), 4, 10)
+    local placeButtonYOffset = touchPreferred
+            and (safeBottomY + touchInventoryOffset + dockHeight + placeButtonGap + placeButtonHeight)
+        or (safeBottomY + desktopInventoryOffset + dockHeight + placeButtonGap + placeButtonHeight)
+    placeButton.Size = UDim2.fromOffset(placeButtonWidth, placeButtonHeight)
+    placeButton.Position = UDim2.new(0.5, -math.floor(placeButtonWidth / 2), 1, -placeButtonYOffset)
+    placeButton.AutoButtonColor = false
+    placeButton.Visible = false
+    placeButton.Parent = screenGui
+    HUDTheme.applySurface(placeButton, {
+        cornerRadius = 14,
+        strokeThickness = 1.6,
+        strokeTransparency = 0.12,
+        backgroundTransparency = 0.08,
+        useGradient = false,
     })
-    self._phaseStatusLabel = phaseStatusLabel
+    HUDTheme.applyText(placeButton, {
+        textXAlignment = Enum.TextXAlignment.Center,
+        textSize = touchPreferred and 12 or 11,
+    })
+    placeButton.Text = 'Place'
+    self._placeButton = placeButton
+    table.insert(
+        self._connections,
+        placeButton.MouseButton1Click:Connect(function()
+            self:_attemptPlaceFromPreview()
+        end)
+    )
 
-    local availableTowerTypes = self:_getAvailableTowerTypes()
+    self._phaseStatusLabel = nil
+
     for index, towerType in ipairs(availableTowerTypes) do
         local towerButton = createInventoryCard(towerLoadoutFrame, index, towerType)
         self._towerTypeButtons[towerType] = towerButton
@@ -1529,6 +1564,93 @@ function TowerPlacementController:_createHud()
         )
     end
 
+    self._previewHintLabel = nil
+    self._placementActionHintLabel = nil
+
+    local selectedPanel = Instance.new('Frame')
+    selectedPanel.Name = 'SelectedTowerPanel'
+    local selectedPanelWidth = touchPreferred and 228 or 248
+    selectedPanel.Size = UDim2.fromOffset(selectedPanelWidth, 0)
+    selectedPanel.AutomaticSize = Enum.AutomaticSize.Y
+    selectedPanel.ClipsDescendants = true
+    -- Keep panel below top-right coin HUD to avoid overlap.
+    local topOffset = touchPreferred and 56 or 48
+    selectedPanel.Position = UDim2.new(1, -(selectedPanelWidth + safeRightX + 10), 0, topOffset)
+    selectedPanel.Visible = false
+    selectedPanel.Parent = screenGui
+    HUDTheme.applySurface(selectedPanel, {
+        cornerRadius = 16,
+        strokeThickness = 1.3,
+        strokeTransparency = 0.22,
+        backgroundTransparency = 0.14,
+        useGradient = false,
+    })
+    self._selectedPanel = selectedPanel
+
+    local panelPadding = Instance.new('UIPadding')
+    panelPadding.PaddingLeft = UDim.new(0, 10)
+    panelPadding.PaddingRight = UDim.new(0, 10)
+    panelPadding.PaddingTop = UDim.new(0, 8)
+    panelPadding.PaddingBottom = UDim.new(0, 8)
+    panelPadding.Parent = selectedPanel
+
+    local panelLayout = Instance.new('UIListLayout')
+    panelLayout.FillDirection = Enum.FillDirection.Vertical
+    panelLayout.Padding = UDim.new(0, 4)
+    panelLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    panelLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    panelLayout.Parent = selectedPanel
+
+    local function createPanelLabel(name: string, textSize: number): TextLabel
+        local label = Instance.new('TextLabel')
+        label.Name = name
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.new(1, 0, 0, touchPreferred and 18 or 16)
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.Parent = selectedPanel
+        HUDTheme.applyText(label, {
+            textXAlignment = Enum.TextXAlignment.Left,
+            textSize = textSize,
+        })
+        return label
+    end
+
+    local actionRow = Instance.new('Frame')
+    actionRow.Name = 'ActionRow'
+    actionRow.BackgroundTransparency = 1
+    actionRow.Size = UDim2.new(1, 0, 0, touchPreferred and 34 or 30)
+    actionRow.Parent = selectedPanel
+    local actionLayout = Instance.new('UIListLayout')
+    actionLayout.FillDirection = Enum.FillDirection.Horizontal
+    actionLayout.Padding = UDim.new(0, 6)
+    actionLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    actionLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    actionLayout.Parent = actionRow
+
+    local function createActionButton(name: string, text: string): TextButton
+        local button = Instance.new('TextButton')
+        button.Name = name
+        button.Text = text
+        button.Size = UDim2.fromOffset(touchPreferred and 90 or 84, touchPreferred and 30 or 26)
+        button.AutoButtonColor = true
+        button.Parent = actionRow
+        HUDTheme.applySurface(button, {
+            useGradient = false,
+            backgroundTransparency = 0.1,
+        })
+        HUDTheme.applyText(button, {
+            textXAlignment = Enum.TextXAlignment.Center,
+            textSize = touchPreferred and 12 or 11,
+        })
+        return button
+    end
+
+    local upgradeButton = createActionButton('UpgradeButton', 'Upgrade')
+    local sellButton = createActionButton('SellButton', 'Sell')
+    self._upgradeButton = upgradeButton
+    self._sellButton = sellButton
+    self._targetModeButton = nil
     table.insert(
         self._connections,
         upgradeButton.MouseButton1Click:Connect(function()
@@ -1541,187 +1663,25 @@ function TowerPlacementController:_createHud()
             self:_fireSell()
         end)
     )
-    table.insert(
-        self._connections,
-        placeActionButton.MouseButton1Click:Connect(function()
-            self:_attemptPlaceFromPreview()
-        end)
-    )
-    table.insert(
-        self._connections,
-        rotateActionButton.MouseButton1Click:Connect(function()
-            self:_rotatePlacement()
-        end)
-    )
-    table.insert(
-        self._connections,
-        cancelActionButton.MouseButton1Click:Connect(function()
-            self:_cancelPlacement()
-        end)
-    )
-    local previewHintLabel = Instance.new('TextLabel')
-    previewHintLabel.Name = 'PlacementPreviewHint'
-    previewHintLabel.Size = touchPreferred and UDim2.fromOffset(390, 32) or UDim2.fromOffset(340, 26)
-    previewHintLabel.Position = touchPreferred and UDim2.new(0, 12, 1, -(safeBottomY + 196))
-        or UDim2.new(0.5, -170, 1, -(safeBottomY + 182))
-    HUDTheme.applyText(previewHintLabel, {
-        textXAlignment = Enum.TextXAlignment.Center,
-    })
-    previewHintLabel.Visible = false
-    previewHintLabel.ZIndex = 21
-    previewHintLabel.Parent = screenGui
-    HUDTheme.applySurface(previewHintLabel, {
-        useGradient = false,
-    })
-    self._previewHintLabel = previewHintLabel
+    self._targetModeFrame = nil
+    table.clear(self._targetModeButtons)
 
-    local actionHintLabel = Instance.new('TextLabel')
-    actionHintLabel.Name = 'PlacementActionHint'
-    actionHintLabel.Size = touchPreferred and UDim2.fromOffset(390, 30) or UDim2.fromOffset(340, 24)
-    actionHintLabel.Position = touchPreferred and UDim2.new(0, 12, 1, -(safeBottomY + 230))
-        or UDim2.new(0.5, -170, 1, -(safeBottomY + 212))
-    actionHintLabel.Visible = false
-    actionHintLabel.ZIndex = 21
-    actionHintLabel.Parent = screenGui
-    HUDTheme.applySurface(actionHintLabel, {
-        useGradient = false,
-    })
-    HUDTheme.applyText(actionHintLabel, {
-        textXAlignment = Enum.TextXAlignment.Center,
-        textSize = touchPreferred and 12 or 11,
-    })
-    self._placementActionHintLabel = actionHintLabel
+    local roleLabel = createPanelLabel('Role', touchPreferred and 13 or 12)
+    local statsLabel = createPanelLabel('Stats', touchPreferred and 12 or 11)
+    local upgradeLabel = createPanelLabel('Upgrade', touchPreferred and 12 or 11)
 
-    local targetModeFrame = Instance.new('Frame')
-    targetModeFrame.Name = 'TargetModeFrame'
-    targetModeFrame.Size = touchPreferred and UDim2.fromOffset(244, 42) or UDim2.fromOffset(212, 36)
-    targetModeFrame.Position = touchPreferred
-            and UDim2.new(1, -(actionRightX + 252), 1, -(actionBaseBottomY + (touchButtonHeight * 4) + 32))
-        or UDim2.new(1, -342, 1, -(actionBaseBottomY + 160))
-    targetModeFrame.Visible = false
-    targetModeFrame.Parent = screenGui
-    self._targetModeFrame = targetModeFrame
-    HUDTheme.applySurface(targetModeFrame, {
-        useGradient = false,
-    })
+    self._selectedPanelLabels = {
+        role = roleLabel,
+        stats = statsLabel,
+        upgrade = upgradeLabel,
+    }
+    self._selectedPortraitFrame = nil
 
-    local modeButtonWidth = touchPreferred and 76 or 66
-    for index, modeName in ipairs(TARGET_MODE_ORDER) do
-        local modeButton = Instance.new('TextButton')
-        modeButton.Name = ('Mode_%s'):format(modeName)
-        modeButton.Size = touchPreferred and UDim2.fromOffset(modeButtonWidth, 34)
-            or UDim2.fromOffset(modeButtonWidth, 28)
-        modeButton.Position = UDim2.fromOffset(6 + ((index - 1) * (modeButtonWidth + 4)), touchPreferred and 4 or 4)
-        modeButton.Text = modeName
-        modeButton.AutoButtonColor = false
-        modeButton.Parent = targetModeFrame
-        HUDTheme.applySurface(modeButton, {
-            useGradient = false,
-        })
-        HUDTheme.applyText(modeButton, {
-            textXAlignment = Enum.TextXAlignment.Center,
-            textSize = touchPreferred and 12 or 11,
-        })
-        self._targetModeButtons[modeName] = modeButton
-
-        table.insert(
-            self._connections,
-            modeButton.MouseButton1Click:Connect(function()
-                if not self._selectedTowerId then
-                    self:_notify('Select a tower first.')
-                    return
-                end
-                if self._latestPhase ~= 'Wave' then
-                    self:_notify('Target mode is only available during wave.')
-                    return
-                end
-                local selectedModel = self._selectedTowerModel
-                local localPlayer = Players.LocalPlayer
-                local ownerUserId = selectedModel and tonumber(selectedModel:GetAttribute('OwnerUserId')) or nil
-                if not (selectedModel and localPlayer and ownerUserId and ownerUserId == localPlayer.UserId) then
-                    self:_notify('You can only change target mode on your tower.')
-                    return
-                end
-                self._selectedTargetMode = modeName
-                self:_updateTargetModeUi()
-                self:_fireTargetMode()
-            end)
-        )
-    end
-
-    local selectedPanel = Instance.new('Frame')
-    selectedPanel.Name = 'SelectedTowerPanel'
-    selectedPanel.Size = touchPreferred and UDim2.fromOffset(300, 176) or UDim2.fromOffset(380, 226)
-    selectedPanel.Position = touchPreferred and UDim2.new(1, -312, 0, safeTopY + 54)
-        or UDim2.new(1, -392, 0, safeTopY + 72)
-    selectedPanel.Visible = false
-    selectedPanel.Parent = screenGui
-    self._selectedPanel = selectedPanel
-    HUDTheme.applySurface(selectedPanel)
-
-    local portraitFrame = Instance.new('Frame')
-    portraitFrame.Name = 'PortraitFrame'
-    portraitFrame.Size = touchPreferred and UDim2.fromOffset(72, 72) or UDim2.fromOffset(88, 88)
-    portraitFrame.Position = touchPreferred and UDim2.fromOffset(220, 8) or UDim2.fromOffset(284, 8)
-    portraitFrame.Parent = selectedPanel
-    HUDTheme.applySurface(portraitFrame, {
-        useGradient = false,
-        cornerRadius = 8,
-    })
-    self._selectedPortraitFrame = portraitFrame
-
-    local function makePanelLabel(name: string, y: number, size: number): TextLabel
-        local label = Instance.new('TextLabel')
-        label.Name = name
-        label.Size = UDim2.new(1, -10, 0, size)
-        label.Position = UDim2.fromOffset(6, y)
-        label.BackgroundTransparency = 1
-        HUDTheme.applyText(label, {
-            textXAlignment = Enum.TextXAlignment.Left,
-        })
-        label.Text = ''
-        label.Parent = selectedPanel
-        return label
-    end
-
-    if touchPreferred then
-        self._selectedPanelLabels.title = makePanelLabel('Title', 6, 20)
-        self._selectedPanelLabels.role = makePanelLabel('Role', 26, 18)
-        self._selectedPanelLabels.typeTier = makePanelLabel('TypeTier', 44, 18)
-        self._selectedPanelLabels.targetMode = makePanelLabel('TargetMode', 62, 18)
-        self._selectedPanelLabels.portrait = makePanelLabel('Portrait', 80, 18)
-        self._selectedPanelLabels.stats = makePanelLabel('Stats', 102, 18)
-        self._selectedPanelLabels.delta = makePanelLabel('Delta', 122, 24)
-        self._selectedPanelLabels.upgrade = makePanelLabel('Upgrade', 146, 16)
-        self._selectedPanelLabels.sell = makePanelLabel('Sell', 162, 14)
-    else
-        self._selectedPanelLabels.title = makePanelLabel('Title', 6, 22)
-        self._selectedPanelLabels.role = makePanelLabel('Role', 30, 20)
-        self._selectedPanelLabels.typeTier = makePanelLabel('TypeTier', 52, 20)
-        self._selectedPanelLabels.targetMode = makePanelLabel('TargetMode', 72, 20)
-        self._selectedPanelLabels.portrait = makePanelLabel('Portrait', 94, 20)
-        self._selectedPanelLabels.stats = makePanelLabel('Stats', 118, 22)
-        self._selectedPanelLabels.delta = makePanelLabel('Delta', 144, 34)
-        self._selectedPanelLabels.upgrade = makePanelLabel('Upgrade', 182, 20)
-        self._selectedPanelLabels.sell = makePanelLabel('Sell', 204, 20)
-    end
-
-    self._upgradeButton = upgradeButton
-    self._sellButton = sellButton
-    self._targetModeButton = targetModeButton
-    table.insert(
-        self._connections,
-        targetModeButton.MouseButton1Click:Connect(function()
-            if not targetModeButton.Active then
-                return
-            end
-            self:_cycleTargetMode()
-        end)
-    )
     self:_refreshTowerTypeButtons()
+    self:_updatePlacementUi()
     self:_updateTargetModeUi()
     self:_updateSelectionActionUi()
-    self:_updatePlacementUi()
+    self:_updateSelectedTowerPanel()
     self:_publishSelectedPanelFootprint()
 end
 
@@ -1789,7 +1749,9 @@ function TowerPlacementController:start()
             end
 
             if input.UserInputType == Enum.UserInputType.Touch then
-                self:_handlePointer(Vector2.new(input.Position.X, input.Position.Y))
+                local touchPosition = Vector2.new(input.Position.X, input.Position.Y)
+                self._touchPreviewScreenPosition = touchPosition
+                self:_handlePointer(touchPosition)
                 return
             end
 
@@ -1809,8 +1771,6 @@ function TowerPlacementController:start()
                 self:_fireUpgrade()
             elseif input.KeyCode == Enum.KeyCode.X then
                 self:_fireSell()
-            elseif input.KeyCode == Enum.KeyCode.T then
-                self:_cycleTargetMode()
             elseif input.KeyCode == Enum.KeyCode.R then
                 if self._placingArmed then
                     self:_rotatePlacement()
@@ -1824,6 +1784,34 @@ function TowerPlacementController:start()
                     self:_attemptPlaceFromPreview()
                 end
             end
+        end)
+    )
+
+    table.insert(
+        self._connections,
+        UserInputService.InputChanged:Connect(function(input, gameProcessedEvent)
+            if input.UserInputType ~= Enum.UserInputType.Touch then
+                return
+            end
+            if gameProcessedEvent and not self._placingArmed then
+                return
+            end
+            self._touchPreviewScreenPosition = Vector2.new(input.Position.X, input.Position.Y)
+        end)
+    )
+
+    table.insert(
+        self._connections,
+        UserInputService.InputEnded:Connect(function(input, gameProcessedEvent)
+            if input.UserInputType ~= Enum.UserInputType.Touch then
+                return
+            end
+            if gameProcessedEvent and not self._placingArmed then
+                self._touchPreviewScreenPosition = nil
+                return
+            end
+            self._touchPreviewScreenPosition = Vector2.new(input.Position.X, input.Position.Y)
+            self._touchPreviewScreenPosition = nil
         end)
     )
 
@@ -1885,11 +1873,13 @@ function TowerPlacementController:start()
     self:_createHud()
     self:_updatePhaseVisualState()
     self:_ensurePlacementPreview()
+    self:_ensureSelectionHighlight()
     table.insert(
         self._connections,
         RunService.RenderStepped:Connect(function()
             self:_updatePlacementPreview()
             self:_updateSelectedTowerPanel()
+            self:_updateSelectionHighlight()
             if
                 self._placementActionHintLabel
                 and self._placementActionHintLabel.Visible
@@ -1942,6 +1932,10 @@ function TowerPlacementController:stop()
     self._previewGhost = nil
     self._previewRange = nil
     self._previewFootprint = nil
+    if self._selectionHighlight then
+        self._selectionHighlight:Destroy()
+        self._selectionHighlight = nil
+    end
     self._previewReason = ''
     self._placementRotationQuarter = 0
     self._previewHintLabel = nil
@@ -1958,6 +1952,7 @@ function TowerPlacementController:stop()
     self._latestCurrency = 0
     self._previewReasonTelemetryLast = ''
     self._selectedPanelLayoutSignature = ''
+    self._touchPreviewScreenPosition = nil
     table.clear(self._visualTelemetryLastAt)
     table.clear(self._visualTelemetryLastPayloadByMarker)
     if self._selectedPanel then

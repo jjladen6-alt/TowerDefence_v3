@@ -161,122 +161,23 @@ function TowerVisualController:_clearAllTransientVfx()
 end
 
 function TowerVisualController:_applyTierVisuals(towerModel: Model)
-    local towerType = tostring(towerModel:GetAttribute('TowerType') or 'Basic')
-    local tier = math.max(0, math.floor(tonumber(towerModel:GetAttribute('UpgradeTier')) or 0))
-    local style = self:_getTierVisualStyle(towerType, tier)
-    local accentColor = style.accentColor or Color3.fromRGB(120, 210, 255)
-    local accessibility = type(GameConfig.VISUAL_ACCESSIBILITY) == 'table' and GameConfig.VISUAL_ACCESSIBILITY or {}
-    local fillTransparency = math.clamp(tonumber(style.fillTransparency) or 0.9, 0.65, 0.97)
-    local outlineTransparency = math.clamp(tonumber(style.outlineTransparency) or 0.3, 0.05, 0.65)
-    local auraRate = math.max(0, tonumber(style.auraRate) or 0)
-    local budgetTier = self:_getVfxBudgetTierConfig()
-    local auraRateMultiplier = math.clamp(tonumber(budgetTier.auraRateMultiplier) or 0.8, 0.3, 1.0)
-    auraRate *= auraRateMultiplier
-    local auraRateCap = math.max(0, tonumber(budgetTier.maxAuraRate) or 6)
-    local accessibilityAuraCap = tonumber(accessibility.maxTowerAuraRate)
-    if accessibilityAuraCap then
-        auraRateCap = math.min(auraRateCap, math.max(0, accessibilityAuraCap))
-    end
-    auraRate = math.min(auraRateCap, auraRate)
-    local maxHighlightFillOpacity = math.clamp(tonumber(accessibility.maxTowerHighlightFillOpacity) or 0.22, 0.05, 0.4)
-    fillTransparency = math.max(fillTransparency, 1 - maxHighlightFillOpacity)
-
+    -- Visual cleanup: no client-side tower outlines/glow markers.
     local highlight = towerModel:FindFirstChild('ClientTierHighlight')
-    if not (highlight and highlight:IsA('Highlight')) then
-        highlight = Instance.new('Highlight')
-        highlight.Name = 'ClientTierHighlight'
-        highlight.DepthMode = Enum.HighlightDepthMode.Occluded
-        highlight.Parent = towerModel
+    if highlight and highlight:IsA('Highlight') then
+        highlight:Destroy()
     end
-    highlight.FillColor = accentColor
-    highlight.OutlineColor = accentColor:Lerp(Color3.new(1, 1, 1), 0.22)
-    highlight.FillTransparency = fillTransparency
-    highlight.OutlineTransparency = outlineTransparency
-    highlight.Enabled = true
 
     local root = getTowerRoot(towerModel)
-    if not root then
-        return
+    if root then
+        local auraAttachment = root:FindFirstChild('ClientTierAuraAttachment')
+        if auraAttachment and auraAttachment:IsA('Attachment') then
+            auraAttachment:Destroy()
+        end
     end
-
-    local auraAttachment = root:FindFirstChild('ClientTierAuraAttachment')
-    if not (auraAttachment and auraAttachment:IsA('Attachment')) then
-        auraAttachment = Instance.new('Attachment')
-        auraAttachment.Name = 'ClientTierAuraAttachment'
-        auraAttachment.Parent = root
-    end
-    local auraEmitter = auraAttachment:FindFirstChild('ClientTierAura')
-    if not (auraEmitter and auraEmitter:IsA('ParticleEmitter')) then
-        auraEmitter = Instance.new('ParticleEmitter')
-        auraEmitter.Name = 'ClientTierAura'
-        auraEmitter.Rate = 0
-        auraEmitter.Lifetime = NumberRange.new(0.2, 0.36)
-        auraEmitter.Speed = NumberRange.new(0.15, 0.5)
-        auraEmitter.SpreadAngle = Vector2.new(12, 12)
-        auraEmitter.LightEmission = 0.5
-        auraEmitter.LockedToPart = true
-        auraEmitter.Texture = 'rbxasset://textures/particles/sparkles_main.dds'
-        auraEmitter.Parent = auraAttachment
-    end
-    auraEmitter.Enabled = self._phase == 'Wave'
-    auraEmitter.Rate = auraRate
-    auraEmitter.Color = ColorSequence.new(accentColor)
 end
 
 function TowerVisualController:_emitAttackPulse(towerId: string, towerModel: Model, towerType: string, tier: number)
-    local limits = type(GameConfig.TOWER_ATTACK_VFX) == 'table' and GameConfig.TOWER_ATTACK_VFX.limits or nil
-    local budgetTier = self:_getVfxBudgetTierConfig()
-    local maxActivePulses = math.max(
-        1,
-        math.floor(tonumber(budgetTier.maxActivePulses) or tonumber(limits and limits.maxActivePulses) or 36)
-    )
-    if self._activePulseCount >= maxActivePulses then
-        return
-    end
-    local currentSecond = math.floor(os.clock())
-    if self._pulseWindowSecond ~= currentSecond then
-        self._pulseWindowSecond = currentSecond
-        self._pulseWindowCount = 0
-    end
-    local maxBurstPerSecond = math.max(1, math.floor(tonumber(budgetTier.maxBurstPerSecond) or 22))
-    if self._pulseWindowCount >= maxBurstPerSecond then
-        return
-    end
-    local root = getTowerRoot(towerModel)
-    if not root then
-        return
-    end
-    local style = self:_getAttackVfxStyle(towerType)
-    local pulse = Instance.new('Part')
-    pulse.Name = 'ClientAttackPulse'
-    pulse.Shape = Enum.PartType.Ball
-    pulse.Anchored = true
-    pulse.CanCollide = false
-    pulse.CanQuery = false
-    pulse.CanTouch = false
-    pulse.CastShadow = false
-    pulse.Material = Enum.Material.Neon
-    pulse.Color = style.pulseColor or Color3.fromRGB(120, 210, 255)
-    local accessibility = type(GameConfig.VISUAL_ACCESSIBILITY) == 'table' and GameConfig.VISUAL_ACCESSIBILITY or {}
-    local maxPulseTransparency = math.clamp(tonumber(accessibility.maxPulseTransparency) or 0.42, 0.15, 0.85)
-    pulse.Transparency = math.min(0.36, maxPulseTransparency)
-    local pulseSize = math.max(1.2, tonumber(style.pulseSize) or 2.5)
-    pulseSize *= math.clamp(tonumber(budgetTier.pulseSizeMultiplier) or 1.0, 0.6, 1.2)
-    pulseSize += math.max(0, tier) * 0.16
-    pulse.Size = Vector3.new(pulseSize, pulseSize, pulseSize)
-    pulse.CFrame = root.CFrame * CFrame.new(0, 1.2, 0)
-    pulse:SetAttribute('TowerId', towerId)
-    pulse.Parent = self:_ensureVfxFolder()
-    self._activePulseCount += 1
-    self._pulseWindowCount += 1
-    local pulseLifetimeSeconds = math.max(
-        0.05,
-        tonumber(budgetTier.pulseLifetimeSeconds) or tonumber(limits and limits.pulseLifetimeSeconds) or 0.18
-    )
-    Debris:AddItem(pulse, pulseLifetimeSeconds)
-    task.delay(pulseLifetimeSeconds, function()
-        self._activePulseCount = math.max(0, self._activePulseCount - 1)
-    end)
+    return
 end
 
 function TowerVisualController:_trackTowerByModel(towerModel: Model)

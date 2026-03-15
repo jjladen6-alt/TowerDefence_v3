@@ -1,19 +1,22 @@
 local HUDTheme = {}
 
 HUDTheme.Tokens = {
-    backgroundColor = Color3.fromRGB(44, 76, 110),
-    gradientTop = Color3.fromRGB(78, 130, 173),
-    gradientBottom = Color3.fromRGB(44, 76, 110),
-    strokeColor = Color3.fromRGB(220, 245, 255),
+    backgroundColor = Color3.fromRGB(28, 36, 46),
+    gradientTop = Color3.fromRGB(34, 45, 58),
+    gradientBottom = Color3.fromRGB(28, 36, 46),
+    strokeColor = Color3.fromRGB(176, 196, 220),
     textColor = Color3.fromRGB(245, 252, 255),
     font = Enum.Font.GothamMedium,
     textSize = 14,
-    textStrokeTransparency = 0.65,
+    textStrokeTransparency = 0.78,
     textStrokeColor = Color3.fromRGB(14, 18, 28),
-    cornerRadius = 18,
-    strokeThickness = 2,
-    strokeTransparency = 0.2,
-    backgroundTransparency = 0.12,
+    cornerRadius = 14,
+    strokeThickness = 1.5,
+    strokeTransparency = 0.34,
+    backgroundTransparency = 0.2,
+    inventoryButtonColor = Color3.fromRGB(41, 52, 67),
+    inventoryButtonSelectedColor = Color3.fromRGB(72, 104, 148),
+    inventoryButtonStrokeColor = Color3.fromRGB(164, 192, 228),
 }
 
 local function getOrCreate(parent: Instance, className: string, childName: string): Instance
@@ -93,24 +96,32 @@ function HUDTheme.applyText(label: TextLabel | TextButton, options: { [string]: 
 end
 
 function HUDTheme.applyInventoryButtonState(button: TextButton, isSelected: boolean)
+    local tokens = HUDTheme.Tokens
     if isSelected then
         HUDTheme.applySurface(button, {
-            strokeThickness = 2.25,
-            strokeTransparency = 0.08,
-            backgroundTransparency = 0.08,
+            backgroundColor = tokens.inventoryButtonSelectedColor,
+            strokeColor = tokens.inventoryButtonStrokeColor,
+            strokeThickness = 1.8,
+            strokeTransparency = 0.05,
+            backgroundTransparency = 0.06,
             useGradient = false,
         })
         HUDTheme.applyText(button, {
             textTransparency = 0,
-            textStrokeTransparency = HUDTheme.Tokens.textStrokeTransparency,
+            textStrokeTransparency = 0.72,
         })
     else
         HUDTheme.applySurface(button, {
+            backgroundColor = tokens.inventoryButtonColor,
+            strokeColor = tokens.inventoryButtonStrokeColor,
+            strokeThickness = 1.2,
+            strokeTransparency = 0.48,
+            backgroundTransparency = 0.2,
             useGradient = false,
         })
         HUDTheme.applyText(button, {
             textTransparency = 0,
-            textStrokeTransparency = HUDTheme.Tokens.textStrokeTransparency,
+            textStrokeTransparency = 0.84,
         })
     end
 end

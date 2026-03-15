@@ -150,6 +150,32 @@ local function isFiniteVector3(value: Vector3): boolean
     return isFiniteNumber(value.X) and isFiniteNumber(value.Y) and isFiniteNumber(value.Z)
 end
 
+local function sanitizeTowerType(value): string?
+    if type(value) ~= 'string' then
+        return nil
+    end
+    local trimmed = string.gsub(value, '^%s*(.-)%s*$', '%1')
+    if trimmed == '' then
+        return nil
+    end
+    return trimmed
+end
+
+local function getTowerUpgradeMaxLevel(config, towerType: string): number
+    local maxLevelByTower = config and config.META_UPGRADE_MAX_LEVEL_BY_TOWER
+    if type(maxLevelByTower) == 'table' then
+        local explicitMax = tonumber(maxLevelByTower[towerType])
+        if explicitMax and explicitMax >= 0 then
+            return math.floor(explicitMax)
+        end
+    end
+    local fallback = tonumber(config and config.META_UPGRADE_DEFAULT_MAX_LEVEL)
+    if fallback and fallback >= 0 then
+        return math.floor(fallback)
+    end
+    return 0
+end
+
 function TowerPlacementService:setActiveMapName(mapName: string)
     if type(mapName) == 'string' and mapName ~= '' then
         self._activeMapName = mapName
@@ -787,6 +813,125 @@ function TowerPlacementService:_emitEconomyUpdated(player: Player)
     })
 end
 
+function TowerPlacementService:_getPermanentCoins(userId: number): number
+    if not self._playerDataService then
+        return 0
+    end
+    if type(self._playerDataService.getPermanentCoins) == 'function' then
+        return math.max(0, math.floor(tonumber(self._playerDataService:getPermanentCoins(userId)) or 0))
+    end
+    if type(self._playerDataService.getCurrency) == 'function' then
+        return math.max(0, math.floor(tonumber(self._playerDataService:getCurrency(userId)) or 0))
+    end
+    return 0
+end
+
+function TowerPlacementService:_setPermanentCoins(userId: number, amount: number)
+    if not self._playerDataService then
+        return
+    end
+    local normalizedAmount = math.max(0, math.floor(tonumber(amount) or 0))
+    if type(self._playerDataService.setPermanentCoins) == 'function' then
+        self._playerDataService:setPermanentCoins(userId, normalizedAmount)
+        return
+    end
+    if type(self._playerDataService.setCurrency) == 'function' then
+        self._playerDataService:setCurrency(userId, normalizedAmount)
+    end
+end
+
+function TowerPlacementService:_getTowerMetaUpgradeLevel(userId: number, towerType: string): number
+    if not self._playerDataService or type(towerType) ~= 'string' or towerType == '' then
+        return 0
+    end
+    local maxLevel = getTowerUpgradeMaxLevel(self._config, towerType)
+    if maxLevel <= 0 then
+        return 0
+    end
+    if type(self._playerDataService.getTowerUpgradeLevel) == 'function' then
+        local level = math.max(0, math.floor(tonumber(self._playerDataService:getTowerUpgradeLevel(userId, towerType)) or 0))
+        return math.min(maxLevel, level)
+    end
+    return 0
+end
+
+function TowerPlacementService:_setTowerMetaUpgradeLevel(userId: number, towerType: string, level: number): number
+    if not self._playerDataService or type(towerType) ~= 'string' or towerType == '' then
+        return 0
+    end
+    local maxLevel = getTowerUpgradeMaxLevel(self._config, towerType)
+    if maxLevel <= 0 then
+        return 0
+    end
+    local nextLevel = math.max(0, math.floor(tonumber(level) or 0))
+    nextLevel = math.min(maxLevel, nextLevel)
+    if type(self._playerDataService.setTowerUpgradeLevel) == 'function' then
+        return math.max(0, math.floor(tonumber(self._playerDataService:setTowerUpgradeLevel(userId, towerType, nextLevel)) or 0))
+    end
+    return 0
+end
+
+function TowerPlacementService:_getTowerMetaUpgradeCost(towerType: string, nextLevel: number): number
+    if type(towerType) ~= 'string' or towerType == '' then
+        return 0
+    end
+    local costsByTower = self._config.META_UPGRADE_COSTS_BY_TOWER
+    if type(costsByTower) ~= 'table' then
+        return 0
+    end
+    local costList = costsByTower[towerType]
+    if type(costList) ~= 'table' then
+        return 0
+    end
+    local normalizedLevel = math.max(1, math.floor(tonumber(nextLevel) or 1))
+    return math.max(0, math.floor(tonumber(costList[normalizedLevel]) or 0))
+end
+
+function TowerPlacementService:_getPlayerTowerMetaSnapshot(userId: number)
+    local towerLevels = {}
+    if self._playerDataService and type(self._playerDataService.getAllTowerUpgradeLevels) == 'function' then
+        local rawLevels = self._playerDataService:getAllTowerUpgradeLevels(userId)
+        if type(rawLevels) == 'table' then
+            for towerType, level in pairs(rawLevels) do
+                if type(towerType) == 'string' and towerType ~= '' then
+                    local maxLevel = getTowerUpgradeMaxLevel(self._config, towerType)
+                    if maxLevel > 0 then
+                        local safeLevel = math.max(0, math.floor(tonumber(level) or 0))
+                        if safeLevel > 0 then
+                            towerLevels[towerType] = math.min(maxLevel, safeLevel)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return {
+        permanentCoins = self:_getPermanentCoins(userId),
+        towerUpgrades = towerLevels,
+    }
+end
+
+function TowerPlacementService:_emitMetaProgressionUpdated(player: Player, contextPayload)
+    local remoteName = self._net.ServerToClient.MetaProgressionUpdated
+    local metaRemote = self:_getRemoteEvent(remoteName)
+    if not metaRemote then
+        return
+    end
+
+    local snapshot = self:_getPlayerTowerMetaSnapshot(player.UserId)
+    local payload = {
+        permanentCoins = snapshot.permanentCoins,
+        towerUpgrades = snapshot.towerUpgrades,
+    }
+    if type(contextPayload) == 'table' then
+        for key, value in pairs(contextPayload) do
+            payload[key] = value
+        end
+    end
+    metaRemote:FireClient(player, payload)
+end
+
 function TowerPlacementService:_emitTowerPlaced(payload)
     local remoteName = self._net.ServerToClient.TowerPlaced
     local towerPlacedRemote = self:_getRemoteEvent(remoteName)
@@ -820,12 +965,10 @@ end
 function TowerPlacementService:_initializePlayerEconomy(player: Player)
     if self._playerEconomy[player.UserId] == nil then
         local startingCurrency = self._config.STARTING_CURRENCY or 0
-        if self._playerDataService and type(self._playerDataService.getCurrency) == 'function' then
-            startingCurrency = self._playerDataService:getCurrency(player.UserId)
-        end
         self._playerEconomy[player.UserId] = math.max(0, math.floor(tonumber(startingCurrency) or 0))
     end
     self:_emitEconomyUpdated(player)
+    self:_emitMetaProgressionUpdated(player)
 end
 
 function TowerPlacementService:_trySpendCurrency(player: Player, amount: number): (boolean, number)
@@ -840,18 +983,12 @@ function TowerPlacementService:_trySpendCurrency(player: Player, amount: number)
     end
 
     self._playerEconomy[player.UserId] = currentBalance - amount
-    if self._playerDataService and type(self._playerDataService.setCurrency) == 'function' then
-        self._playerDataService:setCurrency(player.UserId, self._playerEconomy[player.UserId])
-    end
     return true, self._playerEconomy[player.UserId]
 end
 
 function TowerPlacementService:_refundCurrency(player: Player, amount: number)
     local currentBalance = self._playerEconomy[player.UserId] or (self._config.STARTING_CURRENCY or 0)
     self._playerEconomy[player.UserId] = currentBalance + amount
-    if self._playerDataService and type(self._playerDataService.setCurrency) == 'function' then
-        self._playerDataService:setCurrency(player.UserId, self._playerEconomy[player.UserId])
-    end
 end
 
 function TowerPlacementService:_addCurrency(player: Player, amount: number): number
@@ -860,9 +997,6 @@ function TowerPlacementService:_addCurrency(player: Player, amount: number): num
         currentBalance = self._config.STARTING_CURRENCY or 0
     end
     self._playerEconomy[player.UserId] = currentBalance + amount
-    if self._playerDataService and type(self._playerDataService.setCurrency) == 'function' then
-        self._playerDataService:setCurrency(player.UserId, self._playerEconomy[player.UserId])
-    end
     return self._playerEconomy[player.UserId]
 end
 
@@ -923,7 +1057,11 @@ function TowerPlacementService:_computeTowerUpgradeCost(towerModel: Model, nextT
     return math.max(1, math.floor(configuredCost * difficultyMultiplier))
 end
 
-function TowerPlacementService:_computeTowerTierStats(towerType: string, tier: number): (number, number, number)
+function TowerPlacementService:_computeTowerTierStats(
+    towerType: string,
+    tier: number,
+    ownerUserId: number?
+): (number, number, number)
     local baseDamage = tonumber(self._config.TOWER_DEFAULT_DAMAGE) or 10
     local baseRange = tonumber(self._config.TOWER_DEFAULT_RANGE) or 20
     local baseAttackInterval = tonumber(self._config.TOWER_ATTACK_INTERVAL_SECONDS) or 1.0
@@ -950,13 +1088,43 @@ function TowerPlacementService:_computeTowerTierStats(towerType: string, tier: n
         end
     end
 
-    -- Scaling rule: upgraded DPS towers (tier >= 1) can one-shot at least one configured enemy tier.
+    local resolvedOwnerUserId = tonumber(ownerUserId)
+    if resolvedOwnerUserId then
+        local metaLevel = self:_getTowerMetaUpgradeLevel(math.floor(resolvedOwnerUserId), towerType)
+        if metaLevel > 0 then
+            local effectsByTower = self._config.META_UPGRADE_EFFECTS_BY_TOWER
+            local effects = if type(effectsByTower) == 'table' then effectsByTower[towerType] else nil
+            if type(effects) == 'table' then
+                local damagePerLevel = tonumber(effects.damageMultiplierPerLevel) or 0
+                if damagePerLevel ~= 0 then
+                    damage *= (1 + (damagePerLevel * metaLevel))
+                end
+
+                local rangePerLevel = tonumber(effects.rangeMultiplierPerLevel) or 0
+                if rangePerLevel ~= 0 then
+                    range *= (1 + (rangePerLevel * metaLevel))
+                end
+
+                local attackReductionPerLevel = tonumber(effects.attackIntervalReductionPerLevel) or 0
+                if attackReductionPerLevel ~= 0 then
+                    local reductionScale = 1 - (attackReductionPerLevel * metaLevel)
+                    if reductionScale < 0.1 then
+                        reductionScale = 0.1
+                    end
+                    attackInterval *= reductionScale
+                end
+            end
+        end
+    end
+
+    -- Scaling rule: only higher-tier upgraded DPS towers (tier >= 2) can one-shot
+    -- at least one configured enemy tier. Tier 1 should not auto-force one-shot damage.
     local oneShotExcludedTypes = self._config.TOWER_ONE_SHOT_EXCLUDED_TYPES
     local isOneShotExcluded = false
     if type(oneShotExcludedTypes) == 'table' then
         isOneShotExcluded = oneShotExcludedTypes[towerType] == true
     end
-    if effectiveTier >= 1 and not isOneShotExcluded then
+    if effectiveTier >= 2 and not isOneShotExcluded then
         local targetSpawnOrdinal = tonumber(self._config.TOWER_ONE_SHOT_ENEMY_SPAWN_ORDINAL)
             or tonumber(self._config.ENEMIES_PER_MATCH)
             or 1
@@ -1285,7 +1453,11 @@ function TowerPlacementService:_handleRequestPlaceTower(player: Player, payload)
         towerModel:SetAttribute('PlacementCellKey', resolvedCellKey)
         towerModel:SetAttribute('CostPaid', towerCost)
         towerModel:SetAttribute('UpgradeTier', 0)
-        local baseTierDamage, baseTierRange, baseTierAttackInterval = self:_computeTowerTierStats(towerType, 0)
+        local baseTierDamage, baseTierRange, baseTierAttackInterval = self:_computeTowerTierStats(
+            towerType,
+            0,
+            player.UserId
+        )
         towerModel:SetAttribute('Damage', baseTierDamage)
         towerModel:SetAttribute('Range', baseTierRange)
         towerModel:SetAttribute('AttackInterval', baseTierAttackInterval)
@@ -1494,7 +1666,7 @@ function TowerPlacementService:_handleRequestUpgradeTower(player: Player, payloa
 
     local updateOk, updateErr = pcall(function()
         local towerType = tostring(towerModel:GetAttribute('TowerType') or '')
-        local damage, range, attackInterval = self:_computeTowerTierStats(towerType, nextTier)
+        local damage, range, attackInterval = self:_computeTowerTierStats(towerType, nextTier, player.UserId)
 
         towerModel:SetAttribute('UpgradeTier', nextTier)
         towerModel:SetAttribute('Damage', damage)
@@ -1634,6 +1806,98 @@ function TowerPlacementService:_handleRequestSetTowerTargetMode(player: Player, 
     })
 end
 
+function TowerPlacementService:_handleRequestPurchaseTowerMetaUpgrade(player: Player, payload)
+    if type(payload) ~= 'table' then
+        self:_rejectInvalidPayload(player, 'RequestPurchaseTowerMetaUpgrade')
+        return
+    end
+
+    if self._config.META_UPGRADE_SHOP_ENABLED ~= true then
+        self:_reject(
+            player,
+            'RequestPurchaseTowerMetaUpgrade',
+            'SHOP_DISABLED',
+            'Tower meta upgrades are currently disabled.'
+        )
+        return
+    end
+
+    local roundPhase = self:_getRoundPhase()
+    if roundPhase ~= 'Lobby' then
+        self:_reject(
+            player,
+            'RequestPurchaseTowerMetaUpgrade',
+            'INVALID_PHASE',
+            'Tower meta upgrades can only be purchased in Lobby.'
+        )
+        return
+    end
+
+    local towerType = sanitizeTowerType(payload.towerType)
+    if not towerType then
+        self:_reject(
+            player,
+            'RequestPurchaseTowerMetaUpgrade',
+            'INVALID_TOWER_TYPE',
+            'towerType must be a non-empty string.'
+        )
+        return
+    end
+
+    local maxLevel = getTowerUpgradeMaxLevel(self._config, towerType)
+    if maxLevel <= 0 then
+        self:_reject(
+            player,
+            'RequestPurchaseTowerMetaUpgrade',
+            'UNKNOWN_TOWER_TYPE',
+            'Tower type does not have meta upgrades configured.'
+        )
+        return
+    end
+
+    local currentLevel = self:_getTowerMetaUpgradeLevel(player.UserId, towerType)
+    if currentLevel >= maxLevel then
+        self:_reject(
+            player,
+            'RequestPurchaseTowerMetaUpgrade',
+            'MAX_META_UPGRADE_LEVEL',
+            ('%s is already at max meta level.'):format(towerType)
+        )
+        return
+    end
+
+    local nextLevel = currentLevel + 1
+    local upgradeCost = self:_getTowerMetaUpgradeCost(towerType, nextLevel)
+    if upgradeCost <= 0 then
+        self:_reject(
+            player,
+            'RequestPurchaseTowerMetaUpgrade',
+            'INVALID_META_UPGRADE_COST',
+            'Meta upgrade cost is not configured correctly.'
+        )
+        return
+    end
+
+    local permanentCoins = self:_getPermanentCoins(player.UserId)
+    if permanentCoins < upgradeCost then
+        self:_reject(
+            player,
+            'RequestPurchaseTowerMetaUpgrade',
+            'INSUFFICIENT_PERMANENT_COINS',
+            ('Not enough permanent coins. Need %d, have %d.'):format(upgradeCost, permanentCoins)
+        )
+        return
+    end
+
+    self:_setPermanentCoins(player.UserId, permanentCoins - upgradeCost)
+    local appliedLevel = self:_setTowerMetaUpgradeLevel(player.UserId, towerType, nextLevel)
+    self:_emitMetaProgressionUpdated(player, {
+        purchasedTowerType = towerType,
+        purchasedLevel = appliedLevel,
+        purchaseCost = upgradeCost,
+    })
+end
+
 function TowerPlacementService:_connectHandler(remoteName: string, callback)
     local remote = self:_getRemoteEvent(remoteName)
     if not remote then
@@ -1758,6 +2022,10 @@ function TowerPlacementService:start()
     self:_connectHandler(self._net.ClientToServer.RequestSellTower, self._handleRequestSellTower)
     self:_connectHandler(self._net.ClientToServer.RequestUpgradeTower, self._handleRequestUpgradeTower)
     self:_connectHandler(self._net.ClientToServer.RequestSetTowerTargetMode, self._handleRequestSetTowerTargetMode)
+    self:_connectHandler(
+        self._net.ClientToServer.RequestPurchaseTowerMetaUpgrade,
+        self._handleRequestPurchaseTowerMetaUpgrade
+    )
 end
 
 function TowerPlacementService:stop()
@@ -1997,6 +2265,68 @@ function TowerPlacementService:awardMissionRewardsForRoster(roster, roundNumber:
     end
 
     return summary
+end
+
+function TowerPlacementService:awardPermanentWinCoinsForRoster(roster, amount: number): number
+    if type(roster) ~= 'table' then
+        return 0
+    end
+    local rewardAmount = math.max(0, math.floor(tonumber(amount) or 0))
+    if rewardAmount <= 0 then
+        return 0
+    end
+
+    local rewardedPlayers = 0
+    for _, player in ipairs(roster) do
+        if typeof(player) == 'Instance' and player:IsA('Player') and player.Parent then
+            local currentCoins = self:_getPermanentCoins(player.UserId)
+            self:_setPermanentCoins(player.UserId, currentCoins + rewardAmount)
+            self:_emitMetaProgressionUpdated(player, {
+                rewardSource = 'RoundWin',
+                rewardAmount = rewardAmount,
+            })
+            rewardedPlayers += 1
+        end
+    end
+    return rewardedPlayers
+end
+
+function TowerPlacementService:resetCurrencyForRoster(roster): number
+    if type(roster) ~= 'table' then
+        return 0
+    end
+
+    local resetAmount = math.max(0, math.floor(tonumber(self._config.STARTING_CURRENCY) or 0))
+    local resetCount = 0
+    for _, player in ipairs(roster) do
+        if typeof(player) == 'Instance' and player:IsA('Player') and player.Parent then
+            self._playerEconomy[player.UserId] = resetAmount
+            self:_emitEconomyUpdated(player)
+            resetCount += 1
+        end
+    end
+
+    return resetCount
+end
+
+function TowerPlacementService:emitEconomyForRoster(roster): number
+    if type(roster) ~= 'table' then
+        return 0
+    end
+
+    local emittedCount = 0
+    for _, player in ipairs(roster) do
+        if typeof(player) == 'Instance' and player:IsA('Player') and player.Parent then
+            if self._playerEconomy[player.UserId] == nil then
+                self:_initializePlayerEconomy(player)
+            else
+                self:_emitEconomyUpdated(player)
+            end
+            emittedCount += 1
+        end
+    end
+
+    return emittedCount
 end
 
 function TowerPlacementService:clearRuntimeTowers(): number

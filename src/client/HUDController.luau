@@ -9,12 +9,6 @@ local HUDTheme = require(script.Parent:WaitForChild('ui'):WaitForChild('HUDTheme
 local HUDController = {}
 HUDController.__index = HUDController
 
-local SELECTED_PANEL_LAYOUT_VISIBLE_ATTR = 'HUDSelectedTowerPanelVisible'
-local SELECTED_PANEL_LAYOUT_LEFT_ATTR = 'HUDSelectedTowerPanelLeft'
-local SELECTED_PANEL_LAYOUT_TOP_ATTR = 'HUDSelectedTowerPanelTop'
-local SELECTED_PANEL_LAYOUT_RIGHT_ATTR = 'HUDSelectedTowerPanelRight'
-local SELECTED_PANEL_LAYOUT_BOTTOM_ATTR = 'HUDSelectedTowerPanelBottom'
-
 local function getSafeInsets(): (Vector2, Vector2)
     local ok, topLeft, bottomRight = pcall(function()
         return GuiService:GetGuiInset()
@@ -50,176 +44,219 @@ function HUDController.new(net)
         _running = false,
         _connections = {},
         _screenGui = nil,
-        _topBar = nil,
-        _queueCountdownLabel = nil,
-        _labels = {},
-        _state = {
-            phase = 'Idle',
-            timeRemaining = '-',
-            baseHealth = '-',
-            roundNumber = 0,
-            currency = '-',
-            towerCount = 0,
-            towerLimit = math.max(1, tonumber(GameConfig.TOWER_MAX_TOTAL) or 100),
-            eliteExpectedCount = 0,
-            eliteSpawnedCount = 0,
-            queueState = 'Idle',
-            queueSize = 0,
-            queueReadyCount = 0,
-            queueCountdownTimeRemaining = nil,
-            gameSpeedMultiplier = tonumber(GameConfig.COMBAT_GAME_SPEED_MULTIPLIER) or 1,
-            gameSpeedLabel = '1.0x',
-            speedControlState = 'LOCKED',
-            restartVotePassed = false,
-            roundMutatorName = 'NoModifier',
-            roundMutatorThreatHint = '',
-            missionCompletedCount = 0,
-            missionTotalCount = 0,
-            activeEnemyCount = 0,
-            enemyTargetCount = 0,
-            enemySpawnedCount = 0,
-            enemyRemainingCount = 0,
-        },
+        _coinContainer = nil,
+        _coinLabel = nil,
+        _metaContainer = nil,
+        _metaCoinsLabel = nil,
+        _metaStatusLabel = nil,
+        _metaUpgradeButtonsByTowerType = {},
+        _towerMenuButton = nil,
+        _towerMenuOpen = false,
         _restartVoteButton = nil,
         _touchPreferred = false,
+        _state = {
+            matchCoins = nil,
+            permanentCoins = nil,
+            towerUpgrades = {},
+            metaStatus = '',
+            phase = 'Lobby',
+            restartVotePassed = false,
+        },
     }, HUDController)
-end
-
-function HUDController:_updateTopBarVisibility()
-    local topBar = self._topBar
-    if not topBar or not topBar.Parent then
-        return
-    end
-    local phase = tostring(self._state.phase or 'Idle')
-    local inMapPhase = phase == 'Wave' or phase == 'Results' or phase == 'Cleanup'
-    topBar.Visible = inMapPhase
 end
 
 function HUDController:_updateVoteButtonVisibility()
     local phase = tostring(self._state.phase or 'Idle')
     local showRestartVote = phase == 'Results' and self._state.restartVotePassed ~= true
-
     local restartVoteButton = self._restartVoteButton
     if restartVoteButton and restartVoteButton.Parent then
         restartVoteButton.Visible = showRestartVote
     end
 end
 
-function HUDController:_updateQueueCountdownVisibility()
-    local label = self._queueCountdownLabel
-    if not label or not label.Parent then
+function HUDController:_updateCoinText()
+    local coinLabel = self._coinLabel
+    if not coinLabel then
         return
     end
-
-    local phase = tostring(self._state.phase or 'Idle')
-    local queueState = tostring(self._state.queueState or 'Idle')
-    local timeRemaining = self._state.queueCountdownTimeRemaining
-    local shouldShow = phase == 'Lobby' and queueState == 'CountingDown' and type(timeRemaining) == 'number'
-    label.Visible = shouldShow
-    if shouldShow then
-        label.Text = ('Queue starts in %ds'):format(math.max(0, math.floor(timeRemaining)))
+    local phase = tostring(self._state.phase or 'Lobby')
+    local showPermanent = phase == 'Lobby'
+    local amount = tonumber(showPermanent and self._state.permanentCoins or self._state.matchCoins)
+    if amount == nil then
+        coinLabel.Text = if showPermanent then 'Permanent Coins: --' else 'Match Coins: --'
+        return
     end
+    local labelPrefix = if showPermanent then 'Permanent Coins' else 'Match Coins'
+    coinLabel.Text = ('%s: %d'):format(labelPrefix, math.max(0, math.floor(amount)))
+end
+
+function HUDController:_updateMetaStatusText()
+    local statusLabel = self._metaStatusLabel
+    if not statusLabel then
+        return
+    end
+    local statusText = tostring(self._state.metaStatus or '')
+    if statusText == '' then
+        statusText = 'Choose a tower upgrade in Lobby.'
+    end
+    statusLabel.Text = statusText
+end
+
+function HUDController:_getTowerMetaMaxLevel(towerType: string): number
+    local maxByTower = GameConfig.META_UPGRADE_MAX_LEVEL_BY_TOWER
+    if type(maxByTower) == 'table' then
+        local configuredMax = tonumber(maxByTower[towerType])
+        if configuredMax and configuredMax >= 0 then
+            return math.floor(configuredMax)
+        end
+    end
+    local fallback = tonumber(GameConfig.META_UPGRADE_DEFAULT_MAX_LEVEL)
+    if fallback and fallback >= 0 then
+        return math.floor(fallback)
+    end
+    return 0
+end
+
+function HUDController:_getTowerMetaUpgradeCost(towerType: string, nextLevel: number): number
+    local costsByTower = GameConfig.META_UPGRADE_COSTS_BY_TOWER
+    if type(costsByTower) ~= 'table' then
+        return 0
+    end
+    local costList = costsByTower[towerType]
+    if type(costList) ~= 'table' then
+        return 0
+    end
+    local level = math.max(1, math.floor(tonumber(nextLevel) or 1))
+    return math.max(0, math.floor(tonumber(costList[level]) or 0))
+end
+
+function HUDController:_updateMetaCoinText()
+    local coinsLabel = self._metaCoinsLabel
+    if not coinsLabel then
+        return
+    end
+    local coins = tonumber(self._state.permanentCoins)
+    if coins == nil then
+        coinsLabel.Text = 'Permanent Coins: --'
+        return
+    end
+    coinsLabel.Text = ('Permanent Coins: %d'):format(math.max(0, math.floor(coins)))
+end
+
+function HUDController:_updateMetaUpgradeButtons()
+    for towerType, button in pairs(self._metaUpgradeButtonsByTowerType) do
+        local currentLevel = math.max(0, math.floor(tonumber(self._state.towerUpgrades[towerType]) or 0))
+        local maxLevel = self:_getTowerMetaMaxLevel(towerType)
+        local nextLevel = currentLevel + 1
+        local upgradeCost = self:_getTowerMetaUpgradeCost(towerType, nextLevel)
+        if maxLevel <= 0 then
+            button.Text = ('%s: unavailable'):format(towerType)
+            button.Active = false
+            button.AutoButtonColor = false
+        elseif currentLevel >= maxLevel then
+            button.Text = ('%s Lv%d/%d (MAX)'):format(towerType, currentLevel, maxLevel)
+            button.Active = false
+            button.AutoButtonColor = false
+        else
+            button.Text = ('%s Lv%d -> Lv%d  [%d]'):format(towerType, currentLevel, nextLevel, upgradeCost)
+            button.Active = true
+            button.AutoButtonColor = true
+        end
+    end
+end
+
+function HUDController:_updateTowerMenuVisibility()
+    local phase = tostring(self._state.phase or 'Lobby')
+    local menuAllowed = (GameConfig.META_UPGRADE_SHOP_ENABLED == true and phase == 'Lobby')
+
+    local towerMenuButton = self._towerMenuButton
+    if towerMenuButton and towerMenuButton.Parent then
+        towerMenuButton.Visible = menuAllowed
+        towerMenuButton.Text = if self._towerMenuOpen then 'Close Towers' else 'Towers'
+    end
+
+    local metaContainer = self._metaContainer
+    if metaContainer and metaContainer.Parent then
+        metaContainer.Visible = (menuAllowed and self._towerMenuOpen)
+    end
+end
+
+function HUDController:_toggleTowerMenu()
+    self._towerMenuOpen = not self._towerMenuOpen
+    self:_updateTowerMenuVisibility()
+end
+
+function HUDController:_updateCoinVisibility()
+    local coinContainer = self._coinContainer
+    if not coinContainer or not coinContainer.Parent then
+        return
+    end
+    local phase = tostring(self._state.phase or 'Lobby')
+    coinContainer.Visible = (phase == 'Lobby' or phase == 'Wave' or phase == 'Results' or phase == 'Cleanup')
+    self:_updateCoinText()
+
+    self:_updateTowerMenuVisibility()
 end
 
 function HUDController:_updateResponsiveHudLayout()
     if not self._screenGui or not self._screenGui.Parent then
         return
     end
-    local topBar = self._topBar
-    if not topBar or not topBar.Parent then
-        return
-    end
 
-    local layoutConfig = type(GameConfig.HUD_COMBAT_STRIP_LAYOUT) == 'table' and GameConfig.HUD_COMBAT_STRIP_LAYOUT
-        or {}
-    local profile = if self._touchPreferred then layoutConfig.touch else layoutConfig.desktop
-    if type(profile) ~= 'table' then
-        profile = {}
-    end
-
-    local camera = workspace.CurrentCamera
-    local viewportSize = camera and camera.ViewportSize or Vector2.new(1280, 720)
     local _, bottomInset = getSafeInsets()
     local safePadding = math.max(0, math.floor(tonumber(GameConfig.UI_SAFE_AREA_PADDING) or 8))
     local safeRight = math.floor(bottomInset.X) + safePadding
     local safeBottom = math.floor(bottomInset.Y) + safePadding
 
-    local topBarHeight = self._touchPreferred and 38 or 42
-    local rightMargin = math.max(0, math.floor(tonumber(profile.rightMargin) or (self._touchPreferred and 8 or 14)))
-    local topOffset = math.floor(tonumber(profile.topOffset) or (self._touchPreferred and 4 or 0))
-    -- Align to the CoreGui top row (Roblox menu/chat), not below it.
-    local topBarTop = topOffset
-    local topBarBottom = topBarTop + topBarHeight
-    local leftMargin = math.max(8, safePadding)
-    local preferredTopBarWidth = self._touchPreferred and 248 or 420
-    local maxTopBarWidth = math.max(220, viewportSize.X - leftMargin - rightMargin - safeRight)
-    local topBarWidth = math.min(preferredTopBarWidth, maxTopBarWidth)
-    local topBarX = math.floor((viewportSize.X - topBarWidth) * 0.5)
-    local maxTopBarX = viewportSize.X - topBarWidth - rightMargin - safeRight
-    local clampedMaxTopBarX = math.max(leftMargin, maxTopBarX)
-    topBarX = math.clamp(topBarX, leftMargin, clampedMaxTopBarX)
-    local localPlayer = Players.LocalPlayer
-    local playerGui = localPlayer and localPlayer:FindFirstChildOfClass('PlayerGui')
-    if playerGui and playerGui:GetAttribute(SELECTED_PANEL_LAYOUT_VISIBLE_ATTR) == true then
-        local panelTop = tonumber(playerGui:GetAttribute(SELECTED_PANEL_LAYOUT_TOP_ATTR)) or 0
-        local panelBottom = tonumber(playerGui:GetAttribute(SELECTED_PANEL_LAYOUT_BOTTOM_ATTR)) or 0
-        local panelLeft = tonumber(playerGui:GetAttribute(SELECTED_PANEL_LAYOUT_LEFT_ATTR)) or viewportSize.X
-        local panelRight = tonumber(playerGui:GetAttribute(SELECTED_PANEL_LAYOUT_RIGHT_ATTR)) or viewportSize.X
-        local verticalIntersects = topBarTop < panelBottom and topBarBottom > panelTop
-        if verticalIntersects then
-            local topBarRight = topBarX + topBarWidth
-            local horizontalIntersects = topBarX < panelRight and topBarRight > panelLeft
-            if horizontalIntersects then
-                topBarX = math.max(leftMargin, math.floor(panelLeft - topBarWidth - 12))
-            end
+    local coinContainer = self._coinContainer
+    if coinContainer and coinContainer.Parent then
+        local topOffset = self._touchPreferred and 8 or 6
+        coinContainer.Position = UDim2.new(1, -(safeRight + 8), 0, topOffset)
+    end
+
+    local towerMenuButton = self._towerMenuButton
+    if towerMenuButton and towerMenuButton.Parent then
+        local buttonWidth = self._touchPreferred and 148 or 132
+        local buttonHeight = self._touchPreferred and 48 or 40
+        local livePanelWidth = 0
+        if self._metaContainer and self._metaContainer.Parent then
+            livePanelWidth = math.floor(self._metaContainer.AbsoluteSize.X)
+        end
+        local panelWidth = if livePanelWidth > 0 then livePanelWidth else (self._touchPreferred and 300 or 320)
+        local openOffsetFromCenter = math.floor(panelWidth / 2) + 12
+        local menuX = safePadding + 8
+        if self._towerMenuOpen then
+            menuX = math.max(safePadding + 8, (self._screenGui.AbsoluteSize.X / 2) - openOffsetFromCenter - buttonWidth)
+        end
+        towerMenuButton.Size = UDim2.fromOffset(buttonWidth, buttonHeight)
+        towerMenuButton.AnchorPoint = Vector2.new(0, 0.5)
+        towerMenuButton.Position = UDim2.fromOffset(menuX, math.floor(self._screenGui.AbsoluteSize.Y * 0.5))
+    end
+
+    local metaContainer = self._metaContainer
+    if metaContainer and metaContainer.Parent then
+        local minWidth = self._touchPreferred and 260 or 280
+        metaContainer.Size = UDim2.fromOffset(minWidth, 0)
+        metaContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+        metaContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+    end
+
+    local restartVoteButton = self._restartVoteButton
+    if restartVoteButton and restartVoteButton.Parent then
+        local touchButtonWidth = math.max(154, math.floor(tonumber(GameConfig.UI_TOUCH_MIN_BUTTON_WIDTH) or 150))
+        local touchButtonHeight = math.max(42, math.floor(tonumber(GameConfig.UI_TOUCH_MIN_BUTTON_HEIGHT) or 48))
+        local bottomOffset = (self._touchPreferred and 12 or 8) + safeBottom
+        if self._touchPreferred then
+            restartVoteButton.Size = UDim2.fromOffset(touchButtonWidth, touchButtonHeight)
+            restartVoteButton.Position = UDim2.new(1, -(touchButtonWidth + safeRight + 12), 1, -(bottomOffset + 8))
+        else
+            restartVoteButton.Size = UDim2.fromOffset(132, 34)
+            restartVoteButton.Position = UDim2.new(1, -(140 + safeRight), 1, -(bottomOffset + 34))
         end
     end
-    topBar.Size = UDim2.fromOffset(topBarWidth, topBarHeight)
-    topBar.Position = UDim2.fromOffset(topBarX, topBarTop)
-
-    local queueCountdownLabel = self._queueCountdownLabel
-    if queueCountdownLabel and queueCountdownLabel.Parent then
-        local queueHeight = self._touchPreferred and 32 or 26
-        local queueTop = topBarBottom + (self._touchPreferred and 10 or 8)
-        queueCountdownLabel.Position = UDim2.new(1, -(queueCountdownLabel.AbsoluteSize.X + safeRight + 8), 0, queueTop)
-        queueCountdownLabel.Size = UDim2.fromOffset(queueCountdownLabel.AbsoluteSize.X, queueHeight)
-    end
-
-    local touchButtonWidth = math.max(154, math.floor(tonumber(GameConfig.UI_TOUCH_MIN_BUTTON_WIDTH) or 150))
-    local touchButtonHeight = math.max(42, math.floor(tonumber(GameConfig.UI_TOUCH_MIN_BUTTON_HEIGHT) or 48))
-    local bottomOffset = (self._touchPreferred and 12 or 8) + safeBottom
-    local touchVoteRestartBottomOffset = bottomOffset + touchButtonHeight + 8
-    if self._restartVoteButton and self._restartVoteButton.Parent then
-        self._restartVoteButton.Position = self._touchPreferred
-                and UDim2.new(1, -(touchButtonWidth + safeRight + 12), 1, -touchVoteRestartBottomOffset)
-            or UDim2.new(1, -(266 + safeRight), 1, -(bottomOffset + 34))
-    end
-
-    self:_layoutTopBarLabels()
 end
 
-function HUDController:_bindTopLeftLayoutFootprint()
-    local localPlayer = Players.LocalPlayer
-    local playerGui = localPlayer and localPlayer:FindFirstChildOfClass('PlayerGui')
-    if not playerGui then
-        return
-    end
-    local attrs = {
-        SELECTED_PANEL_LAYOUT_VISIBLE_ATTR,
-        SELECTED_PANEL_LAYOUT_LEFT_ATTR,
-        SELECTED_PANEL_LAYOUT_TOP_ATTR,
-        SELECTED_PANEL_LAYOUT_RIGHT_ATTR,
-        SELECTED_PANEL_LAYOUT_BOTTOM_ATTR,
-    }
-    for _, attrName in ipairs(attrs) do
-        table.insert(
-            self._connections,
-            playerGui:GetAttributeChangedSignal(attrName):Connect(function()
-                self:_updateResponsiveHudLayout()
-            end)
-        )
-    end
-
+function HUDController:_bindLayoutSignals()
     local camera = workspace.CurrentCamera
     if camera then
         table.insert(
@@ -229,214 +266,26 @@ function HUDController:_bindTopLeftLayoutFootprint()
             end)
         )
     end
-end
 
-function HUDController:_resolveCombatCueLabel()
-    local s = self._state
-    local phase = tostring(s.phase or 'Idle')
-    if phase ~= 'Wave' then
-        return 'Spawn: Standby', 'Lane: Standby'
-    end
-
-    local activeEnemyCount = tonumber(s.activeEnemyCount) or 0
-    local enemyRemainingCount = tonumber(s.enemyRemainingCount) or 0
-    local enemyTargetCount = math.max(1, tonumber(s.enemyTargetCount) or 1)
-    local enemySpawnedCount = tonumber(s.enemySpawnedCount) or 0
-
-    local spawnLabel = 'Spawn: Flow'
-    if enemyRemainingCount <= 0 and activeEnemyCount <= 0 then
-        spawnLabel = 'Spawn: Clear'
-    elseif enemySpawnedCount < enemyTargetCount then
-        spawnLabel = 'Spawn: Spawning'
-    elseif activeEnemyCount >= 12 then
-        spawnLabel = 'Spawn: Heavy'
-    end
-
-    local laneLabel = 'Lane: Stable'
-    if activeEnemyCount >= 14 then
-        laneLabel = 'Lane: Congested'
-    elseif (tonumber(s.baseHealth) or 0) > 0 and (tonumber(s.baseHealth) or 0) <= 35 then
-        laneLabel = 'Lane: Base Danger'
-    elseif
-        (tonumber(s.eliteExpectedCount) or 0) > 0
-        and (tonumber(s.eliteSpawnedCount) or 0) < (tonumber(s.eliteExpectedCount) or 0)
-    then
-        local spawnProgress = enemySpawnedCount / enemyTargetCount
-        if spawnProgress >= 0.5 then
-            laneLabel = 'Lane: Elite Window'
-        end
-    end
-    return spawnLabel, laneLabel
-end
-
-function HUDController:_applyVisualPriority()
-    local labels = self._labels
-    if not labels.base or not labels.spawn or not labels.lane or not labels.mode or not labels.elites then
-        return
-    end
-    local accessibility = type(GameConfig.VISUAL_ACCESSIBILITY) == 'table' and GameConfig.VISUAL_ACCESSIBILITY or {}
-    local colorSafeCritical = accessibility.colorSafeCritical == true
-    local s = self._state
-    local baseHealth = tonumber(s.baseHealth) or 0
-    local baseMax = math.max(1, tonumber(GameConfig.BASE_MAX_HEALTH) or 100)
-    local baseRatio = baseHealth / baseMax
-    labels.base.TextColor3 = if baseRatio <= 0.3
-        then (colorSafeCritical and Color3.fromRGB(255, 235, 120) or Color3.fromRGB(255, 118, 118))
-        elseif baseRatio <= 0.6 then Color3.fromRGB(255, 214, 140)
-        else Color3.fromRGB(220, 240, 220)
-    labels.spawn.TextColor3 = if (tonumber(s.activeEnemyCount) or 0) >= 12
-        then Color3.fromRGB(255, 204, 138)
-        else Color3.fromRGB(210, 210, 210)
-    labels.lane.TextColor3 = if string.find(labels.lane.Text, 'Danger', 1, true) ~= nil
-        then (colorSafeCritical and Color3.fromRGB(255, 235, 120) or Color3.fromRGB(255, 126, 126))
-        else Color3.fromRGB(210, 210, 210)
-    labels.mode.TextColor3 = if tostring(s.phase or 'Idle') == 'Wave'
-        then Color3.fromRGB(190, 235, 255)
-        else Color3.fromRGB(205, 205, 205)
-    labels.elites.TextColor3 = if (tonumber(s.eliteExpectedCount) or 0) > 0
-        then Color3.fromRGB(255, 195, 125)
-        else Color3.fromRGB(185, 185, 185)
-end
-
-function HUDController:_layoutTopBarLabels()
-    local topBar = self._topBar
-    if not topBar or not topBar.Parent then
-        return
-    end
-    local labels = self._labels
-    local layoutOrder = if self._touchPreferred
-        then {
-            { key = 'wave', minWidth = 54, preferredWidth = 62, priority = 1 },
-            { key = 'time', minWidth = 74, preferredWidth = 84, priority = 2 },
-            { key = 'base', minWidth = 58, preferredWidth = 66, priority = 3 },
-        }
-        else {
-            { key = 'wave', minWidth = 72, preferredWidth = 86, priority = 1 },
-            { key = 'time', minWidth = 100, preferredWidth = 124, priority = 2 },
-            { key = 'base', minWidth = 82, preferredWidth = 96, priority = 3 },
-        }
-    local gap = 6
-    local innerPadding = 10
-    local availableWidth = math.max(220, topBar.AbsoluteSize.X - (innerPadding * 2))
-    local desiredTotalWidth = 0
-    for _, item in ipairs(layoutOrder) do
-        desiredTotalWidth += item.preferredWidth
-    end
-    desiredTotalWidth += (#layoutOrder - 1) * gap
-    local visibleByKey = {}
-    for _, item in ipairs(layoutOrder) do
-        visibleByKey[item.key] = true
-    end
-    for _, key in ipairs({ 'mode', 'speed', 'spawn', 'lane', 'elites' }) do
-        visibleByKey[key] = false
-    end
-
-    local visibleItems = {}
-    for _, item in ipairs(layoutOrder) do
-        if visibleByKey[item.key] then
-            table.insert(visibleItems, item)
-        end
-    end
-    local minimumTotalWidth = 0
-    for _, item in ipairs(visibleItems) do
-        minimumTotalWidth += item.minWidth
-    end
-    minimumTotalWidth += math.max(0, #visibleItems - 1) * gap
-    local widthBudget = math.max(minimumTotalWidth, availableWidth)
-    local elasticBudget = widthBudget - minimumTotalWidth
-    local preferredElasticTotal = 0
-    for _, item in ipairs(visibleItems) do
-        preferredElasticTotal += (item.preferredWidth - item.minWidth)
-    end
-
-    local xOffset = innerPadding
-    for _, item in ipairs(layoutOrder) do
-        local label = labels[item.key]
-        if label then
-            if visibleByKey[item.key] then
-                local width = item.minWidth
-                if preferredElasticTotal > 0 and elasticBudget > 0 then
-                    local itemElastic = (item.preferredWidth - item.minWidth) / preferredElasticTotal
-                    width += math.floor((elasticBudget * itemElastic) + 0.5)
-                end
-                label.Visible = true
-                label.Position = UDim2.fromOffset(xOffset, 12)
-                label.Size = UDim2.fromOffset(width, 18)
-                xOffset += width + gap
-            else
-                label.Visible = false
+    table.insert(
+        self._connections,
+        UserInputService.LastInputTypeChanged:Connect(function(lastInputType)
+            local touchPreferred = (lastInputType == Enum.UserInputType.Touch)
+            if self._touchPreferred ~= touchPreferred then
+                self._touchPreferred = touchPreferred
+                self:_updateResponsiveHudLayout()
             end
-        end
-    end
-    for key, label in pairs(labels) do
-        if label and visibleByKey[key] ~= true then
-            label.Visible = false
-        end
-    end
+        end)
+    )
 end
 
-function HUDController:_updateHudText()
-    local s = self._state
-    local accessibility = type(GameConfig.VISUAL_ACCESSIBILITY) == 'table' and GameConfig.VISUAL_ACCESSIBILITY or {}
-    local criticalPrefix = accessibility.colorSafeCritical == true and tostring(accessibility.criticalPrefix or '!!')
-        or ''
-    local phase = tostring(s.phase or 'Idle')
-    local visualPhaseLabels = type(GameConfig.VISUAL_PHASE_LABELS) == 'table' and GameConfig.VISUAL_PHASE_LABELS or {}
-    local modeLabel = tostring(visualPhaseLabels[phase] or phase)
-    self._labels.wave.Text = ('Wave: %s'):format(tostring(s.roundNumber))
-    self._labels.mode.Text = ('Mode: %s'):format(modeLabel)
-    self._labels.time.Text = ('Countdown: %s'):format(tostring(s.timeRemaining))
-    local baseValue = tonumber(s.baseHealth) or 0
-    local baseMax = math.max(1, tonumber(GameConfig.BASE_MAX_HEALTH) or 100)
-    local baseWarningThreshold = 0.3
-    local baseLabelPrefix = if criticalPrefix ~= '' and (baseValue / baseMax) <= baseWarningThreshold
-        then (criticalPrefix .. ' ')
-        else ''
-    self._labels.base.Text = ('%sBase: %s'):format(baseLabelPrefix, tostring(s.baseHealth))
-
-    local speedLabel = tostring(s.gameSpeedLabel or '1.0x')
-    local speedState = tostring(s.speedControlState or 'LOCKED')
-    self._labels.speed.Text = ('Speed: %s [%s]'):format(speedLabel, speedState)
-
-    local spawnLabel, laneLabel = self:_resolveCombatCueLabel()
-    self._labels.spawn.Text = spawnLabel
-    if criticalPrefix ~= '' and string.find(laneLabel, 'Danger', 1, true) ~= nil then
-        laneLabel = ('%s %s'):format(criticalPrefix, laneLabel)
-    end
-    self._labels.lane.Text = laneLabel
-
-    if (tonumber(s.eliteExpectedCount) or 0) > 0 then
-        self._labels.elites.Text = ('Elites: %d/%d'):format(
-            tonumber(s.eliteSpawnedCount) or 0,
-            tonumber(s.eliteExpectedCount) or 0
-        )
-    else
-        self._labels.elites.Text = 'Elites: none'
-    end
-
-    self:_applyVisualPriority()
-end
-
-function HUDController:_bindVoteButtons()
+function HUDController:_bindVoteButton()
     if not self._screenGui then
         return
     end
 
-    local touchPreferred = self._touchPreferred
-    local touchButtonWidth = math.max(154, math.floor(tonumber(GameConfig.UI_TOUCH_MIN_BUTTON_WIDTH) or 150))
-    local touchButtonHeight = math.max(42, math.floor(tonumber(GameConfig.UI_TOUCH_MIN_BUTTON_HEIGHT) or 48))
-    local _, bottomInset = getSafeInsets()
-    local safePadding = math.max(0, math.floor(tonumber(GameConfig.UI_SAFE_AREA_PADDING) or 8))
-    local bottomOffset = (touchPreferred and 12 or 8) + math.floor(bottomInset.Y) + safePadding
-    local touchVoteRestartBottomOffset = bottomOffset + touchButtonHeight + 8
-
     local restartVoteButton = Instance.new('TextButton')
     restartVoteButton.Name = 'RestartVoteButton'
-    restartVoteButton.Size = touchPreferred and UDim2.fromOffset(touchButtonWidth, touchButtonHeight)
-        or UDim2.fromOffset(132, 34)
-    restartVoteButton.Position = touchPreferred
-            and UDim2.new(1, -(touchButtonWidth + 12), 1, -touchVoteRestartBottomOffset)
-        or UDim2.new(1, -266, 1, -(bottomOffset + 34))
     restartVoteButton.Visible = false
     restartVoteButton.AutoButtonColor = false
     restartVoteButton.Text = 'Vote Restart'
@@ -453,17 +302,30 @@ function HUDController:_bindVoteButtons()
     table.insert(
         self._connections,
         restartVoteButton.MouseButton1Click:Connect(function()
-            local remoteName = self._net.ClientToServer.RequestVoteRestart
-            local voteRestartRemote = getRemoteEvent(remoteName, 2)
-            if not voteRestartRemote then
+            local remote = getRemoteEvent(self._net.ClientToServer.RequestVoteRestart, 2)
+            if not remote then
                 return
             end
-            voteRestartRemote:FireServer({
+            remote:FireServer({
                 vote = true,
             })
         end)
     )
     self:_updateVoteButtonVisibility()
+end
+
+function HUDController:_requestTowerMetaUpgrade(towerType: string)
+    local purchaseRemote = getRemoteEvent(self._net.ClientToServer.RequestPurchaseTowerMetaUpgrade, 2)
+    if not purchaseRemote then
+        self._state.metaStatus = 'Upgrade remote is unavailable.'
+        self:_updateMetaStatusText()
+        return
+    end
+    purchaseRemote:FireServer({
+        towerType = towerType,
+    })
+    self._state.metaStatus = ('Requested %s upgrade...'):format(towerType)
+    self:_updateMetaStatusText()
 end
 
 function HUDController:_createHud()
@@ -480,97 +342,213 @@ function HUDController:_createHud()
     screenGui.Parent = playerGui
     self._screenGui = screenGui
 
-    local topBar = Instance.new('Frame')
-    topBar.Name = 'TopBar'
-    topBar.ClipsDescendants = true
-    local touchPreferred = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-    self._touchPreferred = touchPreferred
-    local camera = workspace.CurrentCamera
-    local viewportSize = camera and camera.ViewportSize or Vector2.new(1280, 720)
-    local topBarHeight = touchPreferred and 38 or 42
-    local rightMargin = touchPreferred and 8 or 14
-    local topBarWidth = math.max(220, math.min(touchPreferred and 248 or 420, viewportSize.X - 24 - rightMargin))
-    local topBarX = math.floor((viewportSize.X - topBarWidth) * 0.5)
-    topBar.Size = UDim2.fromOffset(topBarWidth, topBarHeight)
-    topBar.Position = touchPreferred and UDim2.fromOffset(topBarX, 2) or UDim2.fromOffset(topBarX, 0)
-    topBar.Parent = screenGui
-    self._topBar = topBar
-    HUDTheme.applySurface(topBar)
+    self._touchPreferred = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
-    local function createLabel(name: string, xOffset: number, width: number): TextLabel
-        local label = Instance.new('TextLabel')
-        label.Name = name
-        label.Size = UDim2.fromOffset(width, 18)
-        label.Position = UDim2.fromOffset(xOffset, 12)
-        label.BackgroundTransparency = 1
-        HUDTheme.applyText(label, {
-            textXAlignment = Enum.TextXAlignment.Left,
-            textSize = touchPreferred and 11 or 12,
+    local coinContainer = Instance.new('Frame')
+    coinContainer.Name = 'CoinContainer'
+    coinContainer.AnchorPoint = Vector2.new(1, 0)
+    coinContainer.AutomaticSize = Enum.AutomaticSize.XY
+    coinContainer.Size = UDim2.fromOffset(0, 0)
+    coinContainer.Parent = screenGui
+    HUDTheme.applySurface(coinContainer)
+    self._coinContainer = coinContainer
+
+    local coinPadding = Instance.new('UIPadding')
+    coinPadding.PaddingLeft = UDim.new(0, self._touchPreferred and 10 or 8)
+    coinPadding.PaddingRight = UDim.new(0, self._touchPreferred and 10 or 8)
+    coinPadding.PaddingTop = UDim.new(0, self._touchPreferred and 6 or 5)
+    coinPadding.PaddingBottom = UDim.new(0, self._touchPreferred and 6 or 5)
+    coinPadding.Parent = coinContainer
+
+    local coinLabel = Instance.new('TextLabel')
+    coinLabel.Name = 'CoinLabel'
+    coinLabel.BackgroundTransparency = 1
+    coinLabel.AutomaticSize = Enum.AutomaticSize.XY
+    coinLabel.Size = UDim2.fromOffset(0, 0)
+    coinLabel.Position = UDim2.fromOffset(0, 0)
+    coinLabel.TextXAlignment = Enum.TextXAlignment.Left
+    coinLabel.Parent = coinContainer
+    HUDTheme.applyText(coinLabel, {
+        textXAlignment = Enum.TextXAlignment.Left,
+        textSize = self._touchPreferred and 14 or 13,
+    })
+    self._coinLabel = coinLabel
+
+    local metaContainer = Instance.new('Frame')
+    metaContainer.Name = 'MetaUpgradeContainer'
+    metaContainer.AnchorPoint = Vector2.new(0, 0)
+    metaContainer.AutomaticSize = Enum.AutomaticSize.XY
+    metaContainer.Parent = screenGui
+    HUDTheme.applySurface(metaContainer, {
+        backgroundTransparency = 0.14,
+    })
+    self._metaContainer = metaContainer
+
+    local towerMenuButton = Instance.new('TextButton')
+    towerMenuButton.Name = 'TowerMenuButton'
+    towerMenuButton.Text = 'Towers'
+    towerMenuButton.AutoButtonColor = true
+    towerMenuButton.Parent = screenGui
+    HUDTheme.applySurface(towerMenuButton, {
+        useGradient = false,
+    })
+    HUDTheme.applyText(towerMenuButton, {
+        textXAlignment = Enum.TextXAlignment.Center,
+        textSize = self._touchPreferred and 15 or 13,
+    })
+    self._towerMenuButton = towerMenuButton
+    table.insert(
+        self._connections,
+        towerMenuButton.MouseButton1Click:Connect(function()
+            self:_toggleTowerMenu()
+        end)
+    )
+
+    local metaPadding = Instance.new('UIPadding')
+    metaPadding.PaddingLeft = UDim.new(0, self._touchPreferred and 10 or 8)
+    metaPadding.PaddingRight = UDim.new(0, self._touchPreferred and 10 or 8)
+    metaPadding.PaddingTop = UDim.new(0, self._touchPreferred and 8 or 6)
+    metaPadding.PaddingBottom = UDim.new(0, self._touchPreferred and 8 or 6)
+    metaPadding.Parent = metaContainer
+
+    local metaLayout = Instance.new('UIListLayout')
+    metaLayout.FillDirection = Enum.FillDirection.Vertical
+    metaLayout.Padding = UDim.new(0, self._touchPreferred and 6 or 4)
+    metaLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    metaLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    metaLayout.Parent = metaContainer
+
+    local metaTitle = Instance.new('TextLabel')
+    metaTitle.Name = 'MetaTitle'
+    metaTitle.BackgroundTransparency = 1
+    metaTitle.AutomaticSize = Enum.AutomaticSize.XY
+    metaTitle.Size = UDim2.fromOffset(0, 0)
+    metaTitle.Text = 'Tower Upgrades'
+    metaTitle.TextXAlignment = Enum.TextXAlignment.Left
+    metaTitle.Parent = metaContainer
+    HUDTheme.applyText(metaTitle, {
+        textXAlignment = Enum.TextXAlignment.Left,
+        textSize = self._touchPreferred and 14 or 13,
+    })
+
+    local statusLabel = Instance.new('TextLabel')
+    statusLabel.Name = 'MetaStatusLabel'
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.AutomaticSize = Enum.AutomaticSize.XY
+    statusLabel.Size = UDim2.fromOffset(0, 0)
+    statusLabel.TextWrapped = false
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = metaContainer
+    HUDTheme.applyText(statusLabel, {
+        textXAlignment = Enum.TextXAlignment.Left,
+        textSize = self._touchPreferred and 12 or 11,
+        textTransparency = 0.08,
+    })
+    self._metaStatusLabel = statusLabel
+
+    table.clear(self._metaUpgradeButtonsByTowerType)
+    local towerTypes = {}
+    if type(GameConfig.TOWER_COSTS) == 'table' then
+        for towerType in pairs(GameConfig.TOWER_COSTS) do
+            if type(towerType) == 'string' and towerType ~= '' then
+                table.insert(towerTypes, towerType)
+            end
+        end
+    end
+    table.sort(towerTypes)
+
+    for _, towerType in ipairs(towerTypes) do
+        local upgradeButton = Instance.new('TextButton')
+        upgradeButton.Name = ('MetaUpgrade_%s'):format(towerType)
+        upgradeButton.AutomaticSize = Enum.AutomaticSize.XY
+        upgradeButton.Size = UDim2.fromOffset(0, self._touchPreferred and 28 or 24)
+        upgradeButton.TextXAlignment = Enum.TextXAlignment.Left
+        upgradeButton.Parent = metaContainer
+        HUDTheme.applySurface(upgradeButton, {
+            useGradient = false,
+            backgroundTransparency = 0.24,
         })
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Text = '-'
-        label.Parent = topBar
-        return label
+        HUDTheme.applyText(upgradeButton, {
+            textXAlignment = Enum.TextXAlignment.Left,
+            textSize = self._touchPreferred and 13 or 12,
+        })
+        local buttonPadding = Instance.new('UIPadding')
+        buttonPadding.PaddingLeft = UDim.new(0, 8)
+        buttonPadding.PaddingRight = UDim.new(0, 8)
+        buttonPadding.Parent = upgradeButton
+
+        table.insert(
+            self._connections,
+            upgradeButton.MouseButton1Click:Connect(function()
+                self:_requestTowerMetaUpgrade(towerType)
+            end)
+        )
+        self._metaUpgradeButtonsByTowerType[towerType] = upgradeButton
     end
 
-    -- Milestone 4: persistent combat strip prioritizes tactical-critical signals.
-    self._labels.wave = createLabel('WaveLabel', 10, 78)
-    self._labels.mode = createLabel('ModeLabel', 88, 94)
-    self._labels.time = createLabel('TimeLabel', 182, 112)
-    self._labels.base = createLabel('BaseLabel', 294, 84)
-    self._labels.speed = createLabel('SpeedLabel', 378, 126)
-    self._labels.spawn = createLabel('SpawnCueLabel', 504, 124)
-    self._labels.lane = createLabel('LaneCueLabel', 628, 148)
-    self._labels.elites = createLabel('ElitesLabel', 776, 110)
-    self:_updateTopBarVisibility()
-
-    local queueCountdownLabel = Instance.new('TextLabel')
-    queueCountdownLabel.Name = 'QueueCountdownLabel'
-    queueCountdownLabel.Size = touchPreferred and UDim2.fromOffset(184, 32) or UDim2.fromOffset(150, 26)
-    queueCountdownLabel.Position = touchPreferred and UDim2.new(1, -192, 0, 60) or UDim2.new(1, -158, 0, 44)
-    queueCountdownLabel.TextXAlignment = Enum.TextXAlignment.Center
-    queueCountdownLabel.Text = ''
-    queueCountdownLabel.Visible = false
-    queueCountdownLabel.Parent = screenGui
-    HUDTheme.applySurface(queueCountdownLabel, {
-        cornerRadius = 10,
-        strokeThickness = 1.5,
-        strokeTransparency = 0.22,
-    })
-    HUDTheme.applyText(queueCountdownLabel, {
-        textXAlignment = Enum.TextXAlignment.Center,
-    })
-    self._queueCountdownLabel = queueCountdownLabel
-    self:_updateQueueCountdownVisibility()
-    self:_bindVoteButtons()
+    self:_bindVoteButton()
+    self:_updateCoinText()
+    self:_updateMetaCoinText()
+    self:_updateMetaUpgradeButtons()
+    self:_updateMetaStatusText()
+    self:_updateCoinVisibility()
+    self:_updateTowerMenuVisibility()
     self:_updateResponsiveHudLayout()
 end
 
-function HUDController:_bindTowerRuntimeCounters()
-    local towerPlacedRemote = getRemoteEvent(self._net.ServerToClient.TowerPlaced, 5)
-    if towerPlacedRemote then
-        table.insert(
-            self._connections,
-            towerPlacedRemote.OnClientEvent:Connect(function(payload)
-                if type(payload) ~= 'table' then
-                    return
-                end
-                self._state.towerCount = math.max(0, (tonumber(self._state.towerCount) or 0) + 1)
-                self:_updateHudText()
-            end)
-        )
+function HUDController:_bindEconomyUpdates()
+    local economyUpdatedRemote = getRemoteEvent(self._net.ServerToClient.EconomyUpdated, 5)
+    if not economyUpdatedRemote then
+        return
     end
 
-    local towerRemovedRemote = getRemoteEvent(self._net.ServerToClient.TowerRemoved, 5)
-    if towerRemovedRemote then
-        table.insert(
-            self._connections,
-            towerRemovedRemote.OnClientEvent:Connect(function(_payload)
-                self._state.towerCount = math.max(0, (tonumber(self._state.towerCount) or 0) - 1)
-                self:_updateHudText()
-            end)
-        )
+    table.insert(
+        self._connections,
+        economyUpdatedRemote.OnClientEvent:Connect(function(payload)
+            local currency = payload and payload.currency
+            if type(currency) == 'number' then
+                self._state.matchCoins = currency
+                self:_updateCoinText()
+            end
+        end)
+    )
+end
+
+function HUDController:_bindMetaProgressionUpdates()
+    local remoteName = self._net.ServerToClient.MetaProgressionUpdated
+    if type(remoteName) ~= 'string' or remoteName == '' then
+        return
     end
+    local progressionRemote = getRemoteEvent(remoteName, 5)
+    if not progressionRemote then
+        return
+    end
+
+    table.insert(
+        self._connections,
+        progressionRemote.OnClientEvent:Connect(function(payload)
+            if type(payload) ~= 'table' then
+                return
+            end
+            local permanentCoins = payload.permanentCoins
+            if type(permanentCoins) == 'number' then
+                self._state.permanentCoins = math.max(0, math.floor(permanentCoins))
+                self:_updateMetaCoinText()
+            end
+
+            if type(payload.towerUpgrades) == 'table' then
+                self._state.towerUpgrades = payload.towerUpgrades
+                self:_updateMetaUpgradeButtons()
+            end
+
+            if type(payload.purchasedTowerType) == 'string' then
+                local level = math.max(0, math.floor(tonumber(payload.purchasedLevel) or 0))
+                local cost = math.max(0, math.floor(tonumber(payload.purchaseCost) or 0))
+                self._state.metaStatus = ('Upgraded %s to Lv%d (-%d)'):format(payload.purchasedTowerType, level, cost)
+                self:_updateMetaStatusText()
+            end
+        end)
+    )
 end
 
 function HUDController:_bindRoundStatus()
@@ -582,50 +560,30 @@ function HUDController:_bindRoundStatus()
     table.insert(
         self._connections,
         roundStatusRemote.OnClientEvent:Connect(function(payload)
-            local state = self._state
-
-            state.phase = payload and payload.phase or state.phase
-            state.timeRemaining = payload and payload.timeRemaining or '-'
-            state.baseHealth = payload and payload.baseHealth or '-'
-            state.roundNumber = payload and payload.roundNumber or state.roundNumber
-            state.eliteExpectedCount = payload and payload.eliteExpectedCount or 0
-            state.eliteSpawnedCount = payload and payload.eliteSpawnedCount or 0
-            state.queueState = payload and payload.queueState or state.queueState
-            state.queueSize = payload and payload.queueSize or state.queueSize
-            state.queueReadyCount = payload and payload.queueReadyCount or state.queueReadyCount
-            state.restartVotePassed = payload and payload.restartVotePassed == true
-            state.gameSpeedMultiplier = payload and payload.gameSpeedMultiplier or state.gameSpeedMultiplier
-            state.gameSpeedLabel = payload and payload.gameSpeedLabel or state.gameSpeedLabel
-            state.speedControlState = payload and payload.speedControlState or state.speedControlState
-            state.activeEnemyCount = payload and payload.activeEnemyCount or state.activeEnemyCount
-            state.enemyTargetCount = payload and payload.enemyTargetCount or state.enemyTargetCount
-            state.enemySpawnedCount = payload and payload.enemySpawnedCount or state.enemySpawnedCount
-            state.enemyRemainingCount = payload and payload.enemyRemainingCount or state.enemyRemainingCount
-            state.roundMutatorName = payload and (payload.roundMutatorName or payload.roundModifierName)
-                or state.roundMutatorName
-            state.roundMutatorThreatHint = payload and payload.roundMutatorThreatHint or state.roundMutatorThreatHint
-            state.missionCompletedCount = payload and payload.missionCompletedCount or state.missionCompletedCount
-            state.missionTotalCount = payload and payload.missionTotalCount or state.missionTotalCount
-            local queueCountdownTimeRemaining = payload and payload.queueCountdownTimeRemaining
-            if type(queueCountdownTimeRemaining) == 'number' then
-                state.queueCountdownTimeRemaining = queueCountdownTimeRemaining
-            elseif
-                state.phase == 'Lobby'
-                and state.queueState == 'CountingDown'
-                and type(payload and payload.timeRemaining) == 'number'
-            then
-                state.queueCountdownTimeRemaining = payload.timeRemaining
-            else
-                state.queueCountdownTimeRemaining = nil
-            end
-            if state.phase == 'Lobby' then
-                state.towerCount = 0
-            end
-            self:_updateTopBarVisibility()
-            self:_updateQueueCountdownVisibility()
+            self._state.phase = payload and payload.phase or self._state.phase
+            self._state.restartVotePassed = payload and payload.restartVotePassed == true
+            self:_updateCoinVisibility()
             self:_updateVoteButtonVisibility()
+        end)
+    )
+end
 
-            self:_updateHudText()
+function HUDController:_bindTowerPlacementFailures()
+    local failureRemote = getRemoteEvent(self._net.ServerToClient.TowerPlacementFailed, 5)
+    if not failureRemote then
+        return
+    end
+    table.insert(
+        self._connections,
+        failureRemote.OnClientEvent:Connect(function(payload)
+            if type(payload) ~= 'table' then
+                return
+            end
+            if payload.requestType == 'RequestPurchaseTowerMetaUpgrade' then
+                local message = tostring(payload.message or 'Upgrade purchase failed.')
+                self._state.metaStatus = message
+                self:_updateMetaStatusText()
+            end
         end)
     )
 end
@@ -637,10 +595,11 @@ function HUDController:start()
     self._running = true
 
     self:_createHud()
-    self:_bindTopLeftLayoutFootprint()
+    self:_bindLayoutSignals()
+    self:_bindEconomyUpdates()
+    self:_bindMetaProgressionUpdates()
+    self:_bindTowerPlacementFailures()
     self:_bindRoundStatus()
-    self:_bindTowerRuntimeCounters()
-    self:_updateHudText()
 end
 
 function HUDController:stop()
@@ -653,16 +612,27 @@ function HUDController:stop()
         connection:Disconnect()
     end
     table.clear(self._connections)
-    table.clear(self._labels)
 
     if self._screenGui then
         self._screenGui:Destroy()
         self._screenGui = nil
     end
-    self._topBar = nil
-    self._queueCountdownLabel = nil
+    self._coinContainer = nil
+    self._coinLabel = nil
+    self._metaContainer = nil
+    self._metaCoinsLabel = nil
+    self._metaStatusLabel = nil
+    table.clear(self._metaUpgradeButtonsByTowerType)
+    self._towerMenuButton = nil
+    self._towerMenuOpen = false
     self._restartVoteButton = nil
     self._touchPreferred = false
+    self._state.matchCoins = nil
+    self._state.permanentCoins = nil
+    self._state.towerUpgrades = {}
+    self._state.metaStatus = ''
+    self._state.phase = 'Lobby'
+    self._state.restartVotePassed = false
 end
 
 return HUDController

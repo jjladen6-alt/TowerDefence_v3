@@ -592,6 +592,27 @@ local GameConfig = {
     WORLD_MAX_ABS_POSITION = 50000,
     REQUEST_DEDUP_WINDOW_SECONDS = 10,
     STARTING_CURRENCY = 350,
+    PERMANENT_WIN_COINS = 50,
+    META_UPGRADE_SHOP_ENABLED = true,
+    META_UPGRADE_DEFAULT_MAX_LEVEL = 5,
+    META_UPGRADE_MAX_LEVEL_BY_TOWER = {
+        Basic = 5,
+        Rapid = 5,
+        Sniper = 5,
+        Support = 5,
+    },
+    META_UPGRADE_COSTS_BY_TOWER = {
+        Basic = { 75, 120, 180, 260, 360 },
+        Rapid = { 75, 120, 180, 260, 360 },
+        Sniper = { 90, 140, 210, 300, 420 },
+        Support = { 80, 130, 190, 275, 390 },
+    },
+    META_UPGRADE_EFFECTS_BY_TOWER = {
+        Basic = { damageMultiplierPerLevel = 0.08 },
+        Rapid = { damageMultiplierPerLevel = 0.07 },
+        Sniper = { damageMultiplierPerLevel = 0.1 },
+        Support = { damageMultiplierPerLevel = 0.03 },
+    },
     KILL_REWARD = 14,
     KILL_REWARD_PER_ROUND = 3,
     ROUND_REWARD_PER_ROUND = 5,
@@ -648,6 +669,18 @@ local GameConfig = {
     INVENTORY_HUD_LAYOUT = {
         scale = 0.8,
         dropViewportPct = 0.05,
+    },
+    -- Simple bottom dock layout for tower placement buttons.
+    -- Values are multiplied by INVENTORY_HUD_LAYOUT.scale in the client HUD.
+    INVENTORY_DOCK_LAYOUT = {
+        paddingX = 10,
+        paddingY = 7,
+        desktopCardWidth = 112,
+        desktopCardHeight = 34,
+        desktopSpacing = 10,
+        touchCardWidth = 104,
+        touchCardHeight = 38,
+        touchSpacing = 10,
     },
     DEFAULT_STAGE_ID = 'brown',
     DEFAULT_ACT_ID = 'Act1',
@@ -738,6 +771,7 @@ local GameConfig = {
         RequestUpgradeTower = { maxRequests = 8, perSeconds = 5 },
         RequestSellTower = { maxRequests = 8, perSeconds = 5 },
         RequestSetTowerTargetMode = { maxRequests = 12, perSeconds = 5 },
+        RequestPurchaseTowerMetaUpgrade = { maxRequests = 4, perSeconds = 8 },
         RequestVoteRestart = { maxRequests = 4, perSeconds = 10 },
     },
 

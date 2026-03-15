@@ -9,6 +9,7 @@ Net.ClientToServer = {
     RequestSellTower = 'RequestSellTower',
     RequestSetTowerTargetMode = 'RequestSetTowerTargetMode',
     RequestVoteRestart = 'RequestVoteRestart',
+    RequestPurchaseTowerMetaUpgrade = 'RequestPurchaseTowerMetaUpgrade',
 }
 
 Net.ServerToClient = {
@@ -19,6 +20,7 @@ Net.ServerToClient = {
     TowerPlacementFailed = 'TowerPlacementFailed',
     SystemMessage = 'SystemMessage',
     EconomyUpdated = 'EconomyUpdated',
+    MetaProgressionUpdated = 'MetaProgressionUpdated',
 }
 
 function Net.getAllRemoteNames()

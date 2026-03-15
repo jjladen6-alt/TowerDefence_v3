@@ -1577,6 +1577,24 @@ function RoundService:_triggerRoundEnd(outcome: string, reason: string)
             end
         end
     end
+    if
+        outcome == 'Victory'
+        and towerPlacementService
+        and type(towerPlacementService.awardPermanentWinCoinsForRoster) == 'function'
+    then
+        local permanentWinCoins = math.max(0, math.floor(tonumber(self._config.PERMANENT_WIN_COINS) or 0))
+        if permanentWinCoins > 0 then
+            local rewardedPlayers = towerPlacementService:awardPermanentWinCoinsForRoster(
+                self._activeRoster,
+                permanentWinCoins
+            )
+            if rewardedPlayers > 0 then
+                self:_broadcastSystemMessage(
+                    ('Permanent coins awarded: +%d to %d player(s).'):format(permanentWinCoins, rewardedPlayers)
+                )
+            end
+        end
+    end
 
     self:_broadcastRoundStatus(self:_withEnemyProgress({
         phase = self._phase,
@@ -1727,6 +1745,9 @@ end
 function RoundService:_runWavePhase(runId: number)
     self._phase = 'Wave'
     self:_configureSpawnPolicyForPhase(self._phase)
+    if self._towerPlacementService and type(self._towerPlacementService.emitEconomyForRoster) == 'function' then
+        self._towerPlacementService:emitEconomyForRoster(self._activeRoster)
+    end
     if type(self._enemyService.setActiveMapName) == 'function' then
         self._enemyService:setActiveMapName(self._activeMapName)
     end
@@ -1934,6 +1955,12 @@ function RoundService:_runCleanupPhase(runId: number)
     local completedRoundModifierName = self._activeRoundModifierName
     local completedRoundMutatorName = self._activeMutatorName
     local towerPlacementService = self._towerPlacementService
+    if towerPlacementService and type(towerPlacementService.resetCurrencyForRoster) == 'function' then
+        local resetCount = towerPlacementService:resetCurrencyForRoster(self._activeRoster)
+        if resetCount > 0 then
+            self:_broadcastSystemMessage(('Round economy reset for %d player(s).'):format(resetCount))
+        end
+    end
     local towersBeforeCleanup = 0
     local towersRemoved = 0
     if towerPlacementService and type(towerPlacementService.clearRuntimeTowers) == 'function' then
