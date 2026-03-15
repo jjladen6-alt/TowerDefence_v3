@@ -79,10 +79,12 @@ local GameConfig = {
     ENEMIES_PER_MATCH_MAX = 60,
     ENEMY_PER_WAVE = 10,
     ENEMY_SPAWN_INTERVAL_SECONDS = 1.0,
-    ENEMY_SPAWN_HEIGHT_OFFSET_STUDS = 4,
+    ENEMY_SPAWN_HEIGHT_OFFSET_STUDS = 1.5,
     ENEMY_SPAWN_HEIGHT_OFFSET_BY_TEMPLATE = {
         -- greenenemy02 has a configured PrimaryPart and should not receive the default +4 lift.
         greenenemy02 = 2,
+        -- red enemy mesh sits high relative to pivot; lower spawn lift for path grounding.
+        redenemy01 = 1.5,
     },
     ENEMY_FACING_ROTATION_OFFSET_DEG_BY_TEMPLATE = {
         -- Per-template orientation correction (degrees): x=pitch, y=yaw, z=roll.

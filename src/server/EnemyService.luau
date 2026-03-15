@@ -40,29 +40,17 @@ end
 
 local function getPreferredTemplateSetForMap(mapName: string, templates: { Model }): { Model }
     local normalizedMap = string.lower(mapName or '')
-    local greenSet = {}
-    local nonGreenSet = {}
+    local mapSet = {}
+    local pattern = ('^%senemy%%d+$'):format(normalizedMap)
+
     for _, template in ipairs(templates) do
         local templateName = string.lower(template.Name)
-        if string.match(templateName, '^greenenemy%d+$') then
-            table.insert(greenSet, template)
-        else
-            table.insert(nonGreenSet, template)
+        if string.match(templateName, pattern) then
+            table.insert(mapSet, template)
         end
     end
 
-    if normalizedMap == 'green' then
-        if #greenSet > 0 then
-            return greenSet
-        end
-        -- Fallback keeps game playable if green-specific models are temporarily missing.
-        return templates
-    end
-
-    if #nonGreenSet > 0 then
-        return nonGreenSet
-    end
-    return templates
+    return mapSet
 end
 
 local function resolveTemplateSpawnHeightOffset(config, templateName: string): number
@@ -886,6 +874,15 @@ function EnemyService:spawnSingleEnemy()
 
     local candidateTemplates = getPreferredTemplateSetForMap(self._activeMapName, templates)
     sortByNameDeterministic(candidateTemplates)
+    if #candidateTemplates == 0 then
+        warn(
+            ('[EnemyService] No enemy templates matched active map "%s". Expected names like "%senemy01".'):format(
+                tostring(self._activeMapName),
+                string.lower(tostring(self._activeMapName))
+            )
+        )
+        return false, 'NO_MAP_MATCHED_ENEMY_MODELS'
+    end
     local selectedTemplate = candidateTemplates[self._rng:NextInteger(1, #candidateTemplates)]
     local enemyModel = selectedTemplate:Clone()
     local root = getModelRoot(enemyModel)
