@@ -76,6 +76,7 @@ local function resolveTemplateFacingRotationOffsetDeg(config, templateName: stri
     local overrides = if type(config.ENEMY_FACING_ROTATION_OFFSET_DEG_BY_TEMPLATE) == 'table'
         then config.ENEMY_FACING_ROTATION_OFFSET_DEG_BY_TEMPLATE
         else nil
+    local globalYawOffset = tonumber(config.ENEMY_FACING_GLOBAL_YAW_OFFSET_DEG) or 0
 
     local function parseRotationOffset(raw): Vector3?
         if type(raw) == 'number' then
@@ -94,11 +95,11 @@ local function resolveTemplateFacingRotationOffsetDeg(config, templateName: stri
     if overrides then
         local exactOverride = parseRotationOffset(overrides[templateName])
         if exactOverride ~= nil then
-            return exactOverride
+            return Vector3.new(exactOverride.X, exactOverride.Y + globalYawOffset, exactOverride.Z)
         end
         local lowercaseOverride = parseRotationOffset(overrides[string.lower(templateName)])
         if lowercaseOverride ~= nil then
-            return lowercaseOverride
+            return Vector3.new(lowercaseOverride.X, lowercaseOverride.Y + globalYawOffset, lowercaseOverride.Z)
         end
     end
 
@@ -109,15 +110,15 @@ local function resolveTemplateFacingRotationOffsetDeg(config, templateName: stri
     if legacyYawOverrides then
         local exactLegacyYaw = tonumber(legacyYawOverrides[templateName])
         if exactLegacyYaw ~= nil then
-            return Vector3.new(0, exactLegacyYaw, 0)
+            return Vector3.new(0, exactLegacyYaw + globalYawOffset, 0)
         end
         local lowercaseLegacyYaw = tonumber(legacyYawOverrides[string.lower(templateName)])
         if lowercaseLegacyYaw ~= nil then
-            return Vector3.new(0, lowercaseLegacyYaw, 0)
+            return Vector3.new(0, lowercaseLegacyYaw + globalYawOffset, 0)
         end
     end
 
-    return Vector3.zero
+    return Vector3.new(0, globalYawOffset, 0)
 end
 
 local function toRotationOffsetCFrame(rotationOffsetDeg: Vector3): CFrame
@@ -128,17 +129,17 @@ local function toRotationOffsetCFrame(rotationOffsetDeg: Vector3): CFrame
     )
 end
 
-local function orientModelToward(
+local function moveModelRootTo(
     model: Model,
-    root: BasePart,
+    targetPosition: Vector3,
     lookDirection: Vector3,
     rootFromPivot: CFrame,
     facingRotationOffset: CFrame
 )
     if lookDirection.Magnitude <= 0 then
-        lookDirection = root.CFrame.LookVector
+        lookDirection = Vector3.new(0, 0, -1)
     end
-    local desiredRootCFrame = CFrame.new(root.Position, root.Position + lookDirection) * facingRotationOffset
+    local desiredRootCFrame = CFrame.new(targetPosition, targetPosition + lookDirection) * facingRotationOffset
     local desiredPivot = desiredRootCFrame * rootFromPivot:Inverse()
     model:PivotTo(desiredPivot)
 end
@@ -161,7 +162,163 @@ local function isWaypointName(name: string): boolean
     return getWaypointOrder(name) ~= nil
 end
 
-local function collectWaypointPartsFromMapFallback(map: Instance): { BasePart }
+local collectWaypointPartsFromMapFallback: (map: Instance) -> { BasePart }
+
+local function findChildCaseInsensitive(root: Instance, childName: string): Instance?
+    local direct = root:FindFirstChild(childName)
+    if direct then
+        return direct
+    end
+
+    local target = string.lower(childName)
+    for _, child in ipairs(root:GetChildren()) do
+        if string.lower(child.Name) == target then
+            return child
+        end
+    end
+
+    return nil
+end
+
+local function getTrailingDigits(name: string): string?
+    return string.match(string.upper(trim(name)), '(%d+)$')
+end
+
+local function resolveWaypointRouteNode(waypointsFolder: Instance, spawnName: string): (Instance?, string?)
+    local candidateNames = {}
+    local seen = {}
+
+    local function addCandidate(name: string?)
+        if type(name) ~= 'string' or name == '' then
+            return
+        end
+        local key = string.lower(name)
+        if seen[key] then
+            return
+        end
+        seen[key] = true
+        table.insert(candidateNames, name)
+    end
+
+    addCandidate(spawnName)
+    addCandidate(trim(spawnName))
+    local laneSuffix = getTrailingDigits(spawnName)
+    if laneSuffix then
+        local laneNumber = tonumber(laneSuffix)
+        local numericSuffix = if laneNumber ~= nil then tostring(laneNumber) else nil
+
+        addCandidate(('Spawn%s'):format(laneSuffix))
+        addCandidate(('WP%s'):format(laneSuffix))
+        addCandidate(('Path%s'):format(laneSuffix))
+        addCandidate(('Route%s'):format(laneSuffix))
+        addCandidate(('Lane%s'):format(laneSuffix))
+        if numericSuffix then
+            addCandidate(('Spawn%s'):format(numericSuffix))
+            addCandidate(('WP%s'):format(numericSuffix))
+            addCandidate(('Path%s'):format(numericSuffix))
+            addCandidate(('Route%s'):format(numericSuffix))
+            addCandidate(('Lane%s'):format(numericSuffix))
+        end
+    end
+
+    for _, candidateName in ipairs(candidateNames) do
+        local routeNode = findChildCaseInsensitive(waypointsFolder, candidateName)
+        if routeNode and (routeNode:IsA('Folder') or routeNode:IsA('Model') or routeNode:IsA('BasePart')) then
+            return routeNode, routeNode.Name
+        end
+    end
+
+    return nil, nil
+end
+
+local function collectWaypointsFromRouteNode(routeNode: Instance): { BasePart }
+    if routeNode:IsA('BasePart') and getWaypointOrder(routeNode.Name) ~= nil then
+        return { routeNode }
+    end
+
+    if routeNode:IsA('Folder') or routeNode:IsA('Model') then
+        return collectWaypointParts(routeNode)
+    end
+
+    return {}
+end
+
+local function hasBranchedWaypointRoutes(waypointsFolder: Instance): boolean
+    for _, child in ipairs(waypointsFolder:GetChildren()) do
+        if child:IsA('Folder') or child:IsA('Model') then
+            if #collectWaypointParts(child) > 0 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function formatBranchedRouteNames(waypointsFolder: Instance): string
+    local names = {}
+    for _, child in ipairs(waypointsFolder:GetChildren()) do
+        if child:IsA('Folder') or child:IsA('Model') then
+            table.insert(names, child.Name)
+        end
+    end
+    table.sort(names, function(a, b)
+        local numA = getWaypointOrder(a) or tonumber(a)
+        local numB = getWaypointOrder(b) or tonumber(b)
+        if numA and numB then
+            return numA < numB
+        end
+        return a < b
+    end)
+    if #names == 0 then
+        return '(none)'
+    end
+    return table.concat(names, ', ')
+end
+
+local function collectSpawnRouteWaypoints(
+    map: Instance,
+    waypointsFolder: Instance,
+    spawnName: string,
+    preferredRouteName: string?
+): ({ BasePart }, string)
+    local routeNode = nil
+    local routeLabel = 'GlobalWaypoints'
+
+    if type(preferredRouteName) == 'string' and preferredRouteName ~= '' then
+        local preferred = findChildCaseInsensitive(waypointsFolder, preferredRouteName)
+        if preferred and (preferred:IsA('Folder') or preferred:IsA('Model') or preferred:IsA('BasePart')) then
+            routeNode = preferred
+            routeLabel = preferred.Name
+        end
+    end
+
+    if not routeNode then
+        local resolvedNode, resolvedName = resolveWaypointRouteNode(waypointsFolder, spawnName)
+        if resolvedNode then
+            routeNode = resolvedNode
+            routeLabel = resolvedName or resolvedNode.Name
+        end
+    end
+
+    if routeNode then
+        local routeWaypoints = collectWaypointsFromRouteNode(routeNode)
+        if #routeWaypoints > 0 then
+            return routeWaypoints, routeLabel
+        end
+    end
+
+    if hasBranchedWaypointRoutes(waypointsFolder) then
+        return {}, 'MissingRouteForSpawn'
+    end
+
+    local waypoints = collectWaypointParts(waypointsFolder)
+    if #waypoints == 0 then
+        waypoints = collectWaypointPartsFromMapFallback(map)
+    end
+    return waypoints, routeLabel
+end
+
+collectWaypointPartsFromMapFallback = function(map: Instance): { BasePart }
     local waypointParts = {}
     for _, descendant in ipairs(map:GetDescendants()) do
         if descendant:IsA('BasePart') and isWaypointName(descendant.Name) then
@@ -275,6 +432,126 @@ local function formatWaypointDebugList(waypoints: { BasePart }): string
         table.insert(names, waypoint.Name)
     end
     return table.concat(names, ' -> ')
+end
+
+local function normalizeAnimationId(value): string?
+    if value == nil then
+        return nil
+    end
+
+    local raw = trim(tostring(value))
+    if raw == '' then
+        return nil
+    end
+
+    if string.match(raw, '^rbxassetid://%d+$') then
+        return raw
+    end
+
+    local directNumeric = tonumber(raw)
+    if directNumeric ~= nil then
+        return ('rbxassetid://%d'):format(math.floor(directNumeric))
+    end
+
+    local numericFromUrl = string.match(raw, '/(%d+)')
+    if numericFromUrl then
+        return ('rbxassetid://%s'):format(numericFromUrl)
+    end
+
+    return nil
+end
+
+local function resolveTemplateWalkAnimationId(config, model: Model, templateName: string): string?
+    local fromModelWalkAttr = normalizeAnimationId(model:GetAttribute('WalkAnimationId'))
+    if fromModelWalkAttr then
+        return fromModelWalkAttr
+    end
+
+    local fromModelGenericAttr = normalizeAnimationId(model:GetAttribute('AnimationId'))
+    if fromModelGenericAttr then
+        return fromModelGenericAttr
+    end
+
+    -- Allow templates to carry their own Animation instance IDs.
+    local embeddedAnimation = model:FindFirstChild('WalkAnimation', true)
+        or model:FindFirstChild('Walk', true)
+        or model:FindFirstChild('Animation', true)
+    if embeddedAnimation and embeddedAnimation:IsA('Animation') then
+        local fromEmbeddedAnimation = normalizeAnimationId(embeddedAnimation.AnimationId)
+        if fromEmbeddedAnimation then
+            return fromEmbeddedAnimation
+        end
+    end
+
+    local byTemplate = if type(config.ENEMY_WALK_ANIMATION_ID_BY_TEMPLATE) == 'table'
+        then config.ENEMY_WALK_ANIMATION_ID_BY_TEMPLATE
+        else nil
+    if byTemplate then
+        local exactTemplateAnimationId = normalizeAnimationId(byTemplate[templateName])
+        if exactTemplateAnimationId then
+            return exactTemplateAnimationId
+        end
+
+        local lowercaseTemplateAnimationId = normalizeAnimationId(byTemplate[string.lower(templateName)])
+        if lowercaseTemplateAnimationId then
+            return lowercaseTemplateAnimationId
+        end
+    end
+
+    return normalizeAnimationId(config.ENEMY_WALK_ANIMATION_ID)
+end
+
+local function startEnemyWalkAnimation(config, model: Model, templateName: string): AnimationTrack?
+    local walkAnimationId = resolveTemplateWalkAnimationId(config, model, templateName)
+    if not walkAnimationId then
+        return nil
+    end
+
+    local animator = nil
+    local animationController = model:FindFirstChildOfClass('AnimationController')
+    if animationController then
+        animator = animationController:FindFirstChildOfClass('Animator')
+        if not animator then
+            animator = Instance.new('Animator')
+            animator.Parent = animationController
+        end
+    end
+
+    if not animator then
+        local humanoid = model:FindFirstChildOfClass('Humanoid')
+        if humanoid then
+            animator = humanoid:FindFirstChildOfClass('Animator')
+            if not animator then
+                animator = Instance.new('Animator')
+                animator.Parent = humanoid
+            end
+        end
+    end
+
+    if not animator then
+        return nil
+    end
+
+    local animation = Instance.new('Animation')
+    animation.AnimationId = walkAnimationId
+    local ok, loadedTrack = pcall(function()
+        return animator:LoadAnimation(animation)
+    end)
+    if not ok then
+        warn(
+            ('[EnemyService] Failed to load walk animation for template "%s" (%s): %s'):format(
+                tostring(templateName),
+                tostring(walkAnimationId),
+                tostring(loadedTrack)
+            )
+        )
+        return nil
+    end
+
+    loadedTrack.Priority = Enum.AnimationPriority.Movement
+    loadedTrack.Looped = true
+    loadedTrack:Play(0.1, 1, 1)
+    return loadedTrack
 end
 
 function EnemyService.new(gameConfig)
@@ -629,6 +906,13 @@ function EnemyService:_resolveEnemy(enemyId: number)
         return
     end
 
+    local animationTrack = record.animationTrack
+    if typeof(animationTrack) == 'Instance' and animationTrack:IsA('AnimationTrack') then
+        pcall(function()
+            animationTrack:Stop(0)
+        end)
+    end
+
     if record.model and record.model.Parent then
         record.model:Destroy()
     end
@@ -637,6 +921,7 @@ function EnemyService:_resolveEnemy(enemyId: number)
 end
 
 function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, runId: number)
+    local record = self._activeEnemies[enemyId]
     local map = self:_getActiveMapFolder()
     if not map then
         self:_debugPathingLog(('enemyId=%d resolveReason=MISSING_MAP'):format(enemyId))
@@ -651,10 +936,12 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
         return
     end
 
-    local waypoints = collectWaypointParts(waypointsFolder)
-    if #waypoints == 0 then
-        waypoints = collectWaypointPartsFromMapFallback(map)
-    end
+    local spawnPointName = tostring(record and record.spawnPointName or '')
+    local preferredRouteName = tostring(record and record.waypointRouteName or '')
+    local waypoints, routeLabel = collectSpawnRouteWaypoints(map, waypointsFolder, spawnPointName, preferredRouteName)
+    self:_debugPathingLog(
+        ('enemyId=%d spawn=%s route=%s waypointCount=%d'):format(enemyId, spawnPointName, routeLabel, #waypoints)
+    )
 
     local root = getModelRoot(model)
     if not root then
@@ -663,7 +950,7 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
         return
     end
 
-    local record = self._activeEnemies[enemyId]
+    record = self._activeEnemies[enemyId]
     local moveSpeed = tonumber(record and record.moveSpeed) or self:_computeEnemyMoveSpeed()
     local pathHeightOffset = tonumber(record and record.pathHeightOffset)
     if pathHeightOffset == nil then
@@ -675,6 +962,11 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
     local facingRotationOffset = if record and typeof(record.facingRotationOffset) == 'CFrame'
         then record.facingRotationOffset
         else CFrame.new()
+    local shouldRotateTowardPath = self._config.ENEMY_ROTATE_TOWARD_NEXT_WAYPOINT ~= false
+    local allowSkinnedMeshRotation = self._config.ENEMY_ROTATE_SKINNED_MESH == true
+    if root:IsA('MeshPart') and root.HasSkinnedMesh and not allowSkinnedMeshRotation then
+        shouldRotateTowardPath = false
+    end
     local resolveReason = 'UNKNOWN'
     local reachedWaypointCount = 0
 
@@ -701,6 +993,12 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
         if segmentStartDistance < 0.001 then
             segmentStartDistance = 0.001
         end
+        if shouldRotateTowardPath then
+            local initialDirection = targetPosition - root.Position
+            if initialDirection.Magnitude > 0.001 then
+                moveModelRootTo(model, root.Position, initialDirection.Unit, rootFromPivot, facingRotationOffset)
+            end
+        end
         while
             self._running
             and self._runId == runId
@@ -717,14 +1015,14 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
 
             local step = math.min(moveSpeed * MOVE_TICK_SECONDS, distance)
             local nextPosition = currentPosition + (offset.Unit * step)
-
-            -- Move using world-space translation so models with custom pivots still path correctly.
             local translation = nextPosition - currentPosition
             if translation.Magnitude > 0 then
                 model:TranslateBy(translation)
             end
-            local lookDirection = offset.Unit
-            orientModelToward(model, root, lookDirection, rootFromPivot, facingRotationOffset)
+            if shouldRotateTowardPath then
+                local lookDirection = offset.Unit
+                moveModelRootTo(model, root.Position, lookDirection, rootFromPivot, facingRotationOffset)
+            end
             local liveRecord = self._activeEnemies[enemyId]
             if liveRecord and #waypoints > 0 then
                 local remainingDistance = (nextPosition - targetPosition).Magnitude
@@ -755,8 +1053,13 @@ function EnemyService:_moveEnemyAlongWaypoints(enemyId: number, model: Model, ru
             if correction.Magnitude > 0 then
                 model:TranslateBy(correction)
             end
-            local lookDirection = root.CFrame.LookVector
-            orientModelToward(model, root, lookDirection, rootFromPivot, facingRotationOffset)
+            if shouldRotateTowardPath then
+                local lookDirection = root.CFrame.LookVector
+                if correction.Magnitude > 0 then
+                    lookDirection = correction.Unit
+                end
+                moveModelRootTo(model, root.Position, lookDirection, rootFromPivot, facingRotationOffset)
+            end
             reachedWaypointCount = waypointIndex
             local liveRecord = self._activeEnemies[enemyId]
             if liveRecord and #waypoints > 0 then
@@ -824,27 +1127,6 @@ function EnemyService:spawnSingleEnemy()
         return false, 'MISSING_WAYPOINTS_FOLDER'
     end
 
-    local waypoints = collectWaypointParts(waypointsFolder)
-    if #waypoints == 0 then
-        waypoints = collectWaypointPartsFromMapFallback(map)
-    end
-    if #waypoints == 0 then
-        local childCount = #waypointsFolder:GetChildren()
-        local descendantCount = #waypointsFolder:GetDescendants()
-        warn(
-            ('[EnemyService] NO_VALID_WAYPOINTS debug: folder=%s class=%s children=%d descendants=%d'):format(
-                waypointsFolder:GetFullName(),
-                waypointsFolder.ClassName,
-                childCount,
-                descendantCount
-            )
-        )
-        return false, 'NO_VALID_WAYPOINTS_V2'
-    end
-    self:_debugPathingLog(
-        ('spawnCheck waypointCount=%d orderedPath=%s'):format(#waypoints, formatWaypointDebugList(waypoints))
-    )
-
     local templates = {}
     for _, child in ipairs(enemyModelsFolder:GetChildren()) do
         if child:IsA('Model') then
@@ -872,6 +1154,33 @@ function EnemyService:spawnSingleEnemy()
         return false, 'NO_VALID_SPAWN_POINT'
     end
 
+    local waypoints, routeLabel = collectSpawnRouteWaypoints(map, waypointsFolder, chosenSpawn.Name, nil)
+    if #waypoints == 0 then
+        local childCount = #waypointsFolder:GetChildren()
+        local descendantCount = #waypointsFolder:GetDescendants()
+        local availableRoutes = formatBranchedRouteNames(waypointsFolder)
+        warn(
+            ('[EnemyService] NO_VALID_WAYPOINTS debug: spawn=%s route=%s availableRoutes=[%s] folder=%s class=%s children=%d descendants=%d'):format(
+                chosenSpawn.Name,
+                routeLabel,
+                availableRoutes,
+                waypointsFolder:GetFullName(),
+                waypointsFolder.ClassName,
+                childCount,
+                descendantCount
+            )
+        )
+        return false, 'NO_VALID_WAYPOINTS_V2'
+    end
+    self:_debugPathingLog(
+        ('spawnCheck spawn=%s route=%s waypointCount=%d orderedPath=%s'):format(
+            chosenSpawn.Name,
+            routeLabel,
+            #waypoints,
+            formatWaypointDebugList(waypoints)
+        )
+    )
+
     local candidateTemplates = getPreferredTemplateSetForMap(self._activeMapName, templates)
     sortByNameDeterministic(candidateTemplates)
     if #candidateTemplates == 0 then
@@ -884,6 +1193,7 @@ function EnemyService:spawnSingleEnemy()
         return false, 'NO_MAP_MATCHED_ENEMY_MODELS'
     end
     local selectedTemplate = candidateTemplates[self._rng:NextInteger(1, #candidateTemplates)]
+
     local enemyModel = selectedTemplate:Clone()
     local root = getModelRoot(enemyModel)
     if not root then
@@ -896,8 +1206,13 @@ function EnemyService:spawnSingleEnemy()
     local spawnHeightOffset = resolveTemplateSpawnHeightOffset(self._config, selectedTemplate.Name)
     local facingRotationOffsetDeg = resolveTemplateFacingRotationOffsetDeg(self._config, selectedTemplate.Name)
     local facingRotationOffset = toRotationOffsetCFrame(facingRotationOffsetDeg)
-    enemyModel:PivotTo(chosenSpawn.CFrame + Vector3.new(0, spawnHeightOffset, 0))
+    local spawnCFrame = chosenSpawn.CFrame + Vector3.new(0, spawnHeightOffset, 0)
+    enemyModel:PivotTo(spawnCFrame * facingRotationOffset)
     local rootFromPivot = enemyModel:GetPivot():ToObjectSpace(root.CFrame)
+    local runtimePathHeightOffset = root.Position.Y - chosenSpawn.Position.Y
+    if runtimePathHeightOffset ~= runtimePathHeightOffset then
+        runtimePathHeightOffset = spawnHeightOffset
+    end
     self:_debugPathingLog(('spawnCheck preparedParts=%d enemyModel=%s'):format(preparedPartCount, enemyModel.Name))
     self._spawnedThisRun += 1
     local spawnOrdinal = self._spawnedThisRun
@@ -931,7 +1246,10 @@ function EnemyService:spawnSingleEnemy()
     enemyModel:SetAttribute('EliteTag', eliteTag)
     enemyModel:SetAttribute('MoveSpeed', moveSpeed)
     enemyModel:SetAttribute('RewardMultiplier', rewardMultiplier)
+    enemyModel:SetAttribute('SpawnPointName', chosenSpawn.Name)
+    enemyModel:SetAttribute('WaypointRoute', routeLabel)
     applyEnemyVisualContrast(enemyModel, self._config, variant, isElite)
+    local animationTrack = startEnemyWalkAnimation(self._config, enemyModel, selectedTemplate.Name)
 
     local enemyId = self._nextEnemyId
     self._nextEnemyId += 1
@@ -949,10 +1267,13 @@ function EnemyService:spawnSingleEnemy()
         moveSpeed = moveSpeed,
         maxHealth = maxHealth,
         health = health,
-        pathHeightOffset = spawnHeightOffset,
+        pathHeightOffset = runtimePathHeightOffset,
+        spawnPointName = chosenSpawn.Name,
+        waypointRouteName = routeLabel,
         rootFromPivot = rootFromPivot,
         facingRotationOffset = facingRotationOffset,
         pathProgress = 0,
+        animationTrack = animationTrack,
     }
 
     local runId = self._runId
@@ -979,6 +1300,17 @@ function EnemyService:spawnBatch(
     if interval < 0 then
         interval = 0
     end
+    local randomExtraDelayMin = tonumber(self._config.ENEMY_SPAWN_RANDOM_EXTRA_DELAY_MIN_SECONDS) or 0
+    local randomExtraDelayMax = tonumber(self._config.ENEMY_SPAWN_RANDOM_EXTRA_DELAY_MAX_SECONDS) or 0
+    if randomExtraDelayMin < 0 then
+        randomExtraDelayMin = 0
+    end
+    if randomExtraDelayMax < 0 then
+        randomExtraDelayMax = 0
+    end
+    if randomExtraDelayMax < randomExtraDelayMin then
+        randomExtraDelayMax = randomExtraDelayMin
+    end
 
     local spawnedCount = 0
     for _ = 1, targetCount do
@@ -1003,8 +1335,15 @@ function EnemyService:spawnBatch(
             onSpawnedEnemyCallback(result)
         end
 
-        if spawnedCount < targetCount and interval > 0 then
-            task.wait(interval)
+        if spawnedCount < targetCount then
+            local randomExtraDelay = 0
+            if randomExtraDelayMax > 0 then
+                randomExtraDelay = self._rng:NextNumber(randomExtraDelayMin, randomExtraDelayMax)
+            end
+            local waitSeconds = interval + randomExtraDelay
+            if waitSeconds > 0 then
+                task.wait(waitSeconds)
+            end
         end
     end
 

@@ -94,6 +94,17 @@ local function pickTargetByMode(towerPosition: Vector3, enemies, maxRange: numbe
     return pickFirstEnemyInRange(towerPosition, enemies, maxRange)
 end
 
+local function getEnemiesInRange(towerPosition: Vector3, enemies, maxRange: number)
+    local inRange = {}
+    for _, enemy in ipairs(enemies) do
+        local distance = (enemy.position - towerPosition).Magnitude
+        if distance <= maxRange then
+            table.insert(inRange, enemy)
+        end
+    end
+    return inRange
+end
+
 local function findEnemyByIdInRange(enemyId: number, towerPosition: Vector3, enemies, maxRange: number)
     for _, enemy in ipairs(enemies) do
         if enemy.enemyId == enemyId then
@@ -276,6 +287,14 @@ function TowerCombatService:_pruneMissingTowerCooldowns(activeTowers)
             self._lastFacingUpdateAtByTowerId[towerId] = nil
         end
     end
+end
+
+function TowerCombatService:_isAreaOfEffectTowerType(towerType: string): boolean
+    local configuredAoeByType = self._config.TOWER_AOE_BY_TYPE
+    if type(configuredAoeByType) == 'table' then
+        return configuredAoeByType[towerType] == true
+    end
+    return towerType == 'Rapid'
 end
 
 function TowerCombatService:_getFacingConfig()
@@ -510,10 +529,12 @@ function TowerCombatService:_tickCombat()
     for _, tower in ipairs(towers) do
         local towerId = tower.towerId
         if towerId ~= '' then
+            local towerType = tostring(tower.towerType or '')
             local range = math.max(0, tonumber(tower.range) or 0)
             local damage = math.max(0, tonumber(tower.damage) or 0)
             local attackInterval = tonumber(tower.attackInterval) or 1.0
             local supportMultiplier = supportAttackIntervalMultipliers[towerId] or 1
+            local isAreaOfEffectTower = self:_isAreaOfEffectTowerType(towerType)
             if supportMultiplier < 1 then
                 attackInterval *= supportMultiplier
                 self:_debugIncrement('supportBuffedShots', 1)
@@ -540,23 +561,42 @@ function TowerCombatService:_tickCombat()
                 end
                 if targetEnemy then
                     self:_updateTowerFacing(tower, targetEnemy.position, nowTime)
-                    local ok, result = self._enemyService:applyDamage(targetEnemy.enemyId, damage, {
-                        sourceType = 'Tower',
-                        towerId = towerId,
-                    })
-                    if ok then
-                        self:_debugIncrement('hitsLanded', 1)
-                        if type(result) == 'table' then
-                            self:_debugIncrement('damageApplied', tonumber(result.damageApplied) or 0)
-                            if result.isDead then
-                                self:_debugIncrement('killsObserved', 1)
+                    local targetsToDamage = if isAreaOfEffectTower
+                        then getEnemiesInRange(tower.position, enemies, range)
+                        else { targetEnemy }
+                    local appliedAnyDamage = false
+                    for _, damageTarget in ipairs(targetsToDamage) do
+                        local ok, result = self._enemyService:applyDamage(damageTarget.enemyId, damage, {
+                            sourceType = 'Tower',
+                            towerId = towerId,
+                        })
+                        if ok then
+                            appliedAnyDamage = true
+                            self:_debugIncrement('hitsLanded', 1)
+                            if type(result) == 'table' then
+                                self:_debugIncrement('damageApplied', tonumber(result.damageApplied) or 0)
+                                if result.isDead then
+                                    self:_debugIncrement('killsObserved', 1)
+                                    if self._targetEnemyByTowerId[towerId] == damageTarget.enemyId then
+                                        self._targetEnemyByTowerId[towerId] = nil
+                                    end
+                                end
+                            end
+                        else
+                            self:_debugIncrement('applyDamageErrors', 1)
+                            if self._targetEnemyByTowerId[towerId] == damageTarget.enemyId then
                                 self._targetEnemyByTowerId[towerId] = nil
                             end
                         end
+                    end
+                    if appliedAnyDamage then
+                        local towerModel = tower.model
+                        if towerModel and towerModel.Parent then
+                            local nextAttackFxNonce = (tonumber(towerModel:GetAttribute('AttackFxNonce')) or 0) + 1
+                            towerModel:SetAttribute('AttackFxNonce', nextAttackFxNonce)
+                            towerModel:SetAttribute('LastAttackAt', nowTime)
+                        end
                         self:_recordTowerAttack(towerId, nowTime)
-                    else
-                        self:_debugIncrement('applyDamageErrors', 1)
-                        self._targetEnemyByTowerId[towerId] = nil
                     end
                 else
                     self:_debugIncrement('missesNoTarget', 1)

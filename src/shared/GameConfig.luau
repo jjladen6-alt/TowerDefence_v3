@@ -74,23 +74,48 @@ local GameConfig = {
         },
     },
 
-    ENEMIES_PER_MATCH = 30,
+    ENEMIES_PER_MATCH = 15,
     ENEMIES_PER_MATCH_PER_ROUND = 1,
     ENEMIES_PER_MATCH_MAX = 60,
     ENEMY_PER_WAVE = 10,
     ENEMY_SPAWN_INTERVAL_SECONDS = 1.0,
+    -- Adds randomized extra delay per spawn to reduce enemy clumping.
+    ENEMY_SPAWN_RANDOM_EXTRA_DELAY_MIN_SECONDS = 1.0,
+    ENEMY_SPAWN_RANDOM_EXTRA_DELAY_MAX_SECONDS = 2.0,
+    -- Enemy orientation while pathing.
+    ENEMY_ROTATE_TOWARD_NEXT_WAYPOINT = true,
+    -- Skinned meshes can rotate too; set false if a specific rig deforms.
+    ENEMY_ROTATE_SKINNED_MESH = true,
     ENEMY_SPAWN_HEIGHT_OFFSET_STUDS = 1.5,
     ENEMY_SPAWN_HEIGHT_OFFSET_BY_TEMPLATE = {
+        -- brownenemy01 spawns high at default; lower baseline to align with pad/waypoint plane.
+        brownenemy01 = 0.0,
+        -- greenenemy01 rides slightly low at default; lift by +0.5 studs.
+        greenenemy01 = 2.0,
         -- greenenemy02 has a configured PrimaryPart and should not receive the default +4 lift.
         greenenemy02 = 2,
+        -- yellowenemy01 spawns slightly high at default; nudge down while keeping lane lock stable.
+        yellowenemy01 = 0.0,
         -- red enemy mesh sits high relative to pivot; lower spawn lift for path grounding.
         redenemy01 = 1.5,
     },
     ENEMY_FACING_ROTATION_OFFSET_DEG_BY_TEMPLATE = {
         -- Per-template orientation correction (degrees): x=pitch, y=yaw, z=roll.
         -- Use this to align imported models to path direction while keeping them upright.
+        -- brownenemy01 requires opposite yaw correction from yellowenemy01.
+        brownenemy01 = { x = 0, y = -80, z = 0 },
         greenenemy02 = { x = 0, y = 180, z = 0 },
+        redenemy01 = { x = 0, y = 180, z = 0 },
+        -- yellowenemy01 imports with a distinct forward axis; correct yaw for path-facing.
+        yellowenemy01 = { x = 0, y = 80, z = 0 },
     },
+    -- Global correction applied to all enemy templates (degrees yaw).
+    ENEMY_FACING_GLOBAL_YAW_OFFSET_DEG = 180,
+    -- Default walk animation (optional global fallback).
+    ENEMY_WALK_ANIMATION_ID = nil,
+    -- Per-template walk animation IDs for skinned rigs (Mixamo/AnimationController).
+    -- Keep empty to let each template provide its own animation via attributes/embedded Animation instances.
+    ENEMY_WALK_ANIMATION_ID_BY_TEMPLATE = {},
     ENEMY_MOVE_SPEED = 12,
     ENEMY_MOVE_SPEED_PER_ROUND = 0.2,
     ENEMY_BASE_HEALTH = 40,
@@ -182,7 +207,7 @@ local GameConfig = {
             threatHint = 'Fast movers. Prioritize range and coverage.',
         },
     },
-    DEBUG_WAYPOINT_PATHING = false,
+    DEBUG_WAYPOINT_PATHING = true,
     BASE_MAX_HEALTH = 100,
     BASE_LEAK_DAMAGE = 20,
     DEBUG_BALANCE_SNAPSHOT = true,
@@ -291,6 +316,10 @@ local GameConfig = {
     TOWER_DEFAULT_RANGE = 24,
     TOWER_DEFAULT_DAMAGE = 12,
     TOWER_ATTACK_INTERVAL_SECONDS = 1.0,
+    -- Tower types that apply damage to all enemies within tower range each attack cycle.
+    TOWER_AOE_BY_TYPE = {
+        Rapid = true,
+    },
     TOWER_COMBAT_TICK_SECONDS = 0.1,
     DEBUG_TOWER_COMBAT = false,
     DEBUG_TOWER_COMBAT_PRINT_INTERVAL_SECONDS = 3,

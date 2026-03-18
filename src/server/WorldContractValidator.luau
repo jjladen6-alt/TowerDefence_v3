@@ -41,44 +41,55 @@ local function parseWaypointOrder(name: string): number?
     return nil
 end
 
-local function validateWaypointContract(errors: { string }, waypointsFolder: Instance?, mapName: string)
-    if not waypointsFolder or not waypointsFolder:IsA('Folder') then
-        return
-    end
-
+local function collectOrderedWaypointEntries(root: Instance): { [number]: any }
     local orderedParts = {}
     local seenOrders = {}
-    for _, descendant in ipairs(waypointsFolder:GetDescendants()) do
+    for _, descendant in ipairs(root:GetDescendants()) do
         if descendant:IsA('BasePart') then
             local order = parseWaypointOrder(descendant.Name)
             if order then
-                if seenOrders[order] then
-                    table.insert(
-                        errors,
-                        ('Workspace/%s/Waypoints has duplicate waypoint order %d (%s and %s).'):format(
-                            mapName,
-                            order,
-                            seenOrders[order],
-                            descendant:GetFullName()
-                        )
-                    )
-                else
-                    seenOrders[order] = descendant:GetFullName()
-                end
                 table.insert(orderedParts, {
                     part = descendant,
                     order = order,
+                    duplicateOf = seenOrders[order],
                 })
+                if not seenOrders[order] then
+                    seenOrders[order] = descendant:GetFullName()
+                end
             end
         end
     end
 
+    return orderedParts
+end
+
+local function validateWaypointSequence(
+    errors: { string },
+    orderedParts: { [number]: any },
+    mapName: string,
+    sequenceLabel: string
+)
     if #orderedParts == 0 then
         table.insert(
             errors,
-            ('Workspace/%s/Waypoints has no valid numeric/wp-prefixed waypoint parts.'):format(mapName)
+            ('Workspace/%s/%s has no valid numeric/wp-prefixed waypoint parts.'):format(mapName, sequenceLabel)
         )
         return
+    end
+
+    for _, entry in ipairs(orderedParts) do
+        if entry.duplicateOf then
+            table.insert(
+                errors,
+                ('Workspace/%s/%s has duplicate waypoint order %d (%s and %s).'):format(
+                    mapName,
+                    sequenceLabel,
+                    entry.order,
+                    entry.duplicateOf,
+                    entry.part:GetFullName()
+                )
+            )
+        end
     end
 
     table.sort(orderedParts, function(a, b)
@@ -90,21 +101,51 @@ local function validateWaypointContract(errors: { string }, waypointsFolder: Ins
         if entry.order < 1 then
             table.insert(
                 errors,
-                ('Waypoint order must start at 1+, found %d (%s).'):format(entry.order, entry.part:GetFullName())
+                ('Waypoint order must start at 1+, found %d (%s in Workspace/%s/%s).'):format(
+                    entry.order,
+                    entry.part:GetFullName(),
+                    mapName,
+                    sequenceLabel
+                )
             )
         end
         if previous > 0 and (entry.order - previous) > 1 then
             table.insert(
                 errors,
-                ('Waypoint order gap detected between %d and %d in Workspace/%s/Waypoints.'):format(
+                ('Waypoint order gap detected between %d and %d in Workspace/%s/%s.'):format(
                     previous,
                     entry.order,
-                    mapName
+                    mapName,
+                    sequenceLabel
                 )
             )
         end
         previous = entry.order
     end
+end
+
+local function validateWaypointContract(errors: { string }, waypointsFolder: Instance?, mapName: string)
+    if not waypointsFolder or not waypointsFolder:IsA('Folder') then
+        return
+    end
+
+    local hasBranchedRoutes = false
+    for _, child in ipairs(waypointsFolder:GetChildren()) do
+        if child:IsA('Folder') or child:IsA('Model') then
+            local orderedParts = collectOrderedWaypointEntries(child)
+            if #orderedParts > 0 then
+                hasBranchedRoutes = true
+                validateWaypointSequence(errors, orderedParts, mapName, ('Waypoints/%s'):format(child.Name))
+            end
+        end
+    end
+
+    if hasBranchedRoutes then
+        return
+    end
+
+    local globalOrderedParts = collectOrderedWaypointEntries(waypointsFolder)
+    validateWaypointSequence(errors, globalOrderedParts, mapName, 'Waypoints')
 end
 
 local function getImplementedStageIds(gameConfig): { string }
@@ -230,6 +271,41 @@ local function ensureStageBootstrapParts(stageRoot: Instance)
             if descendant:IsA('BasePart') and parseWaypointOrder(descendant.Name) then
                 hasValidWaypoint = true
                 break
+            end
+        end
+    end
+    if waypoints and waypoints:IsA('Folder') and enemySpawns and enemySpawns:IsA('Folder') then
+        local hasRouteFolders = false
+        for _, child in ipairs(waypoints:GetChildren()) do
+            if child:IsA('Folder') or child:IsA('Model') then
+                for _, routeDescendant in ipairs(child:GetDescendants()) do
+                    if routeDescendant:IsA('BasePart') and parseWaypointOrder(routeDescendant.Name) then
+                        hasRouteFolders = true
+                        break
+                    end
+                end
+            end
+            if hasRouteFolders then
+                break
+            end
+        end
+
+        if not hasRouteFolders then
+            for _, child in ipairs(waypoints:GetChildren()) do
+                if child:IsA('BasePart') then
+                    local suffix = string.match(string.upper(child.Name), '^WP(%d+)$')
+                    if suffix then
+                        local routeFolderName = ('Spawn%s'):format(suffix)
+                        local routeFolder = waypoints:FindFirstChild(routeFolderName)
+                        if not routeFolder or not (routeFolder:IsA('Folder') or routeFolder:IsA('Model')) then
+                            local newFolder = Instance.new('Folder')
+                            newFolder.Name = routeFolderName
+                            newFolder.Parent = waypoints
+                            routeFolder = newFolder
+                        end
+                        child.Parent = routeFolder
+                    end
+                end
             end
         end
     end

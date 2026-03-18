@@ -1463,6 +1463,8 @@ function TowerPlacementService:_handleRequestPlaceTower(player: Player, payload)
         towerModel:SetAttribute('AttackInterval', baseTierAttackInterval)
         towerModel:SetAttribute('TargetMode', 'First')
         towerModel:SetAttribute('PlacementRotationY', rotationY)
+        towerModel:SetAttribute('AttackFxNonce', 0)
+        towerModel:SetAttribute('LastAttackAt', 0)
         local towerSpec = self:_getTowerSchemaSpec(towerType)
         if
             type(towerSpec) == 'table'
